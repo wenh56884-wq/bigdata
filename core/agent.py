@@ -53,18 +53,18 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from rag import PER_LIST as RAG_PER_LIST
-from rag import TOP_K as RAG_TOP_K
-from rag import RagService
-from rag import tokenize as rag_tokenize  # 中文友好的分词（长期记忆按相关度召回时复用）
+from services.rag import PER_LIST as RAG_PER_LIST
+from services.rag import TOP_K as RAG_TOP_K
+from services.rag import RagService
+from services.rag import tokenize as rag_tokenize  # 中文友好的分词（长期记忆按相关度召回时复用）
 
-import planning  # 规划引擎：任务拆解 / 执行自检 / 深度搜索拆解（Planning 模块）
-import prompting  # 提示词工程：查询意图结构化理解（Query Understanding）+ SQL / 回答清单
-import tables  # 非结构化表格：把 非结构化数据/ 的 markdown/HTML 表格解析成可 SQL 查询的 SQLite
-import ml_forecast  # sklearn 月度业务指标预测（三个库）
-import sanitize  # 输出脱敏：结果集预处理 + 回答 / 流式文本兜底，避免个人信息出现在回答里
+from core import planning  # 规划引擎：任务拆解 / 执行自检 / 深度搜索拆解（Planning 模块）
+from core import prompting  # 提示词工程：查询意图结构化理解（Query Understanding）+ SQL / 回答清单
+from services import tables  # 非结构化表格：把 非结构化数据/ 的 markdown/HTML 表格解析成可 SQL 查询的 SQLite
+from services import ml_forecast  # sklearn 月度业务指标预测（三个库）
+from services import sanitize  # 输出脱敏：结果集预处理 + 回答 / 流式文本兜底，避免个人信息出现在回答里
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 DATA_DIR = PROJECT_ROOT / "data"
@@ -447,7 +447,7 @@ def plot_last_result(title: str = "", x_col: str = "", y_cols: str = "") -> str:
         return "数值列与横轴列相同，无法成图；请用 y_cols 明确指定要画的数值列。"
 
     try:
-        import viz
+        from services import viz
     except ImportError:
         return "可视化不可用：缺少 matplotlib，请先执行 pip install matplotlib。"
 

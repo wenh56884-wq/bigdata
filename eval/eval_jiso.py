@@ -32,9 +32,9 @@ from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-import agent as ag  # 复用项目配置：db_connect / build_llm / _validate_readonly / get_table_schema
+from core import agent as ag  # 复用项目配置：db_connect / build_llm / _validate_readonly / get_table_schema
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 
 DATASETS = [
     {"key": "finance", "db": "financial_asset_management", "title": "金融",

@@ -51,9 +51,9 @@ from collections.abc import Iterator
 from html.parser import HTMLParser
 from pathlib import Path
 
-from rag import tokenize  # 复用中文友好的分词（关键词召回用），避免再写一套
+from services.rag import tokenize  # 复用中文友好的分词（关键词召回用），避免再写一套
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TABLE_DATA_DIR = Path(os.getenv("TABLE_DATA_DIR") or (PROJECT_ROOT / "非结构化数据"))
 DB_PATH = PROJECT_ROOT / "data" / "tables.sqlite3"
 

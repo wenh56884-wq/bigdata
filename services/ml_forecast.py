@@ -25,7 +25,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 try:
     from dotenv import load_dotenv
@@ -561,7 +561,7 @@ def run_forecast(metric: str | None = None, db: str | None = None,
 def _render_chart(metric_key: str, m: dict, result: dict) -> Path | None:
     """生成“历史 + 预测”趋势图 PNG（Matplotlib 懒加载；缺库/失败返回 None 不中断流程）。"""
     try:
-        import viz
+        from services import viz
     except Exception:
         return None
     n = len(result["values"])

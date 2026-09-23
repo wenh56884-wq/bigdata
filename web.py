@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from agent import ChatService, db_skill_cards, delete_memory, list_memories, search_memories
+from core.agent import ChatService, db_skill_cards, delete_memory, list_memories, search_memories
 
 app = Flask(__name__)
 service = ChatService()

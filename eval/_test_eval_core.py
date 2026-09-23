@@ -4,9 +4,10 @@
 import sys
 from decimal import Decimal
 from datetime import date, datetime
+from pathlib import Path
 
-sys.path.insert(0, ".")
-from eval_jiso import extract_sql, result_counter, _cell_key  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from eval.eval_jiso import extract_sql, result_counter, _cell_key  # noqa: E402
 
 failures = []
 
@@ -78,7 +79,7 @@ check("行序无关 + 数值形态无关判等", result_counter(r1) == result_co
 check("内容不同判不等", result_counter(r1) == result_counter(r3), False)
 
 # ---------- 生成 SQL 的只读校验（复用 agent 逻辑） ----------
-import agent as ag  # noqa: E402
+from core import agent as ag  # noqa: E402
 
 try:
     ag._validate_readonly("SELECT * FROM clients;")
