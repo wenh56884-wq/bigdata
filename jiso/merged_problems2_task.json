@@ -1,0 +1,1052 @@
+[
+  {
+    "id": 1,
+    "problem": "查下咱医院有多少个科室？，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS dept_cnt FROM departments_wards WHERE type <> '病区';"
+  },
+  {
+    "id": 2,
+    "problem": "列出所有姓张的患者名字和手机号，请输出对应SQL语句",
+    "sql": "SELECT patient_name, contact_phone FROM patient_master_index WHERE patient_name LIKE '张%' AND delete_flag = 'N';"
+  },
+  {
+    "id": 3,
+    "problem": "看看2024年1月有好多门诊就诊记录，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS visit_cnt FROM medical_encounters WHERE encounter_type = '门诊' AND encounter_date BETWEEN '2024-01-01' AND '2024-01-31 23:59:59';"
+  },
+  {
+    "id": 4,
+    "problem": "哪个科室的床位最多？，请输出对应SQL语句",
+    "sql": "SELECT name, total_beds FROM departments_wards ORDER BY total_beds DESC LIMIT 1;"
+  },
+  {
+    "id": 5,
+    "problem": "年龄大于60岁的患者有几个？，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS patient_cnt FROM patient_master_index WHERE age > 60 AND delete_flag = 'N';"
+  },
+  {
+    "id": 6,
+    "problem": "急诊科的电话是多少？，请输出对应SQL语句",
+    "sql": "SELECT contact_number FROM departments_wards WHERE name = '急诊科';"
+  },
+  {
+    "id": 7,
+    "problem": "医保余额超过1万的患者有哪些？，请输出对应SQL语句",
+    "sql": "SELECT * FROM patient_master_index WHERE insurance_balance > 10000 AND delete_flag = 'N';"
+  },
+  {
+    "id": 8,
+    "problem": "看看今天有多少设备在使用中？，请输出对应SQL语句",
+    "sql": "SELECT COUNT(DISTINCT equipment_id) AS in_use_cnt FROM medical_equipment_usage WHERE DATE(start_time) = CURDATE() AND usage_status = '正常完成';"
+  },
+  {
+    "id": 9,
+    "problem": "查下阿莫西林还有多少库存，请输出对应SQL语句",
+    "sql": "SELECT SUM(current_quantity) AS total_stock FROM pharmacy_inventory WHERE drug_id = 12345 AND inventory_status = '在库';"
+  },
+  {
+    "id": 10,
+    "problem": "体温超过38.5度的就诊记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM medical_encounters WHERE temperature > 38.5;"
+  },
+  {
+    "id": 11,
+    "problem": "查查上个月的总收入是多少，请输出对应SQL语句",
+    "sql": "SELECT SUM(total_cost) AS last_month_income FROM medical_encounters WHERE DATE_FORMAT(encounter_date, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m');"
+  },
+  {
+    "id": 12,
+    "problem": "哪些医生是主任医师？，请输出对应SQL语句",
+    "sql": "SELECT staff_id, staff_name, employee_no FROM medical_staff WHERE job_title = '主任医师' AND is_active = 1;"
+  },
+  {
+    "id": 13,
+    "problem": "看看哪些药品快过期了（3个月内），请输出对应SQL语句",
+    "sql": "SELECT batch_number, drug_id, expiration_date, current_quantity FROM pharmacy_inventory WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 3 MONTH) AND inventory_status = '在库';"
+  },
+  {
+    "id": 14,
+    "problem": "查查女性患者有多少，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS female_cnt FROM patient_master_index WHERE gender = 'F' AND delete_flag = 'N';"
+  },
+  {
+    "id": 15,
+    "problem": "查下住院患者的平均住院天数，请输出对应SQL语句",
+    "sql": "SELECT AVG(DATEDIFF(discharge_date, encounter_date)) AS avg_stay_days FROM medical_encounters WHERE encounter_type = '住院' AND discharge_date IS NOT NULL;"
+  },
+  {
+    "id": 16,
+    "problem": "哪些设备需要维护了？，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT equipment_id FROM medical_equipment_usage WHERE next_maintenance_date <= CURDATE();"
+  },
+  {
+    "id": 17,
+    "problem": "患者自付金额超过5000的记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM medical_encounters WHERE patient_payment > 5000;"
+  },
+  {
+    "id": 18,
+    "problem": "哪些医嘱被取消了？，请输出对应SQL语句",
+    "sql": "SELECT * FROM medical_orders WHERE execution_status = '已取消';"
+  },
+  {
+    "id": 19,
+    "problem": "查查各血型的患者分布，请输出对应SQL语句",
+    "sql": "SELECT blood_type, COUNT(*) AS patient_cnt FROM patient_master_index WHERE delete_flag = 'N' GROUP BY blood_type;"
+  },
+  {
+    "id": 20,
+    "problem": "哪些员工还有年假？，请输出对应SQL语句",
+    "sql": "SELECT staff_id, staff_name, annual_leave_balance FROM medical_staff WHERE annual_leave_balance > 0 AND is_active = 1;"
+  },
+  {
+    "id": 21,
+    "problem": "看看上个月药品采购花了多少钱，请输出对应SQL语句",
+    "sql": "SELECT SUM(total_cost) AS purchase_cost FROM pharmacy_inventory WHERE DATE_FORMAT(purchase_date, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m');"
+  },
+  {
+    "id": 22,
+    "problem": "查查各支付方式的金额分布，请输出对应SQL语句",
+    "sql": "SELECT payment_method, SUM(net_amount) AS total_amount FROM billing_transactions GROUP BY payment_method;"
+  },
+  {
+    "id": 23,
+    "problem": "哪些患者的诊断是高血压？，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT p.patient_id, p.patient_name FROM patient_master_index p JOIN medical_encounters e ON p.patient_id = e.patient_id WHERE e.diagnosis_desc LIKE '%高血压%';"
+  },
+  {
+    "id": 24,
+    "problem": "查下各科室的可用床位数，请输出对应SQL语句",
+    "sql": "SELECT name, available_beds FROM departments_wards;"
+  },
+  {
+    "id": 25,
+    "problem": "心率异常（<60或>100）的患者就诊记录，请输出对应SQL语句",
+    "sql": "SELECT e.*, p.patient_name FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id WHERE e.heart_rate < 60 OR e.heart_rate > 100;"
+  },
+  {
+    "id": 26,
+    "problem": "哪些供应商供应的药品最多？，请输出对应SQL语句",
+    "sql": "SELECT supplier_id, COUNT(DISTINCT drug_id) AS drug_cnt FROM pharmacy_inventory GROUP BY supplier_id ORDER BY drug_cnt DESC;"
+  },
+  {
+    "id": 27,
+    "problem": "哪些设备使用时长超过4小时？，请输出对应SQL语句",
+    "sql": "SELECT usage_id, equipment_id, duration_minutes FROM medical_equipment_usage WHERE duration_minutes > 240;"
+  },
+  {
+    "id": 28,
+    "problem": "查查住院患者的费用明细，请输出对应SQL语句",
+    "sql": "SELECT b.* FROM billing_transactions b JOIN medical_encounters e ON b.encounter_id = e.encounter_id WHERE e.encounter_type = '住院';"
+  },
+  {
+    "id": 29,
+    "problem": "哪些药品是管控药品？，请输出对应SQL语句",
+    "sql": "SELECT * FROM pharmacy_inventory WHERE is_controlled_substance = 1;"
+  },
+  {
+    "id": 30,
+    "problem": "查查各科室的月收入目标，请输出对应SQL语句",
+    "sql": "SELECT name, revenue_target / 12 AS monthly_income_target FROM departments_wards;"
+  },
+  {
+    "id": 31,
+    "problem": "哪些医嘱是紧急的？，请输出对应SQL语句",
+    "sql": "SELECT * FROM medical_orders WHERE is_urgent = 1;"
+  },
+  {
+    "id": 32,
+    "problem": "查查患者的婚姻状况分布，请输出对应SQL语句",
+    "sql": "SELECT marital_status, COUNT(*) AS patient_cnt FROM patient_master_index WHERE delete_flag = 'N' GROUP BY marital_status;"
+  },
+  {
+    "id": 33,
+    "problem": "哪些交易有未付金额？，请输出对应SQL语句",
+    "sql": "SELECT * FROM billing_transactions WHERE outstanding_amount > 0;"
+  },
+  {
+    "id": 34,
+    "problem": "查查医生的专业方向分布，请输出对应SQL语句",
+    "sql": "SELECT specialization, COUNT(*) AS staff_cnt FROM medical_staff WHERE job_title LIKE '%医师%' GROUP BY specialization;"
+  },
+  {
+    "id": 35,
+    "problem": "哪些药品需要冷藏？，请输出对应SQL语句",
+    "sql": "SELECT * FROM pharmacy_inventory WHERE temperature_requirement = '冷藏';"
+  },
+  {
+    "id": 36,
+    "problem": "查查各年龄段患者人数，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN age < 18 THEN '未成年' WHEN age BETWEEN 18 AND 35 THEN '青年' WHEN age BETWEEN 36 AND 60 THEN '中年' ELSE '老年' END AS age_group, COUNT(*) AS patient_cnt FROM patient_master_index WHERE delete_flag = 'N' GROUP BY age_group;"
+  },
+  {
+    "id": 37,
+    "problem": "哪些患者是VIP？，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name FROM patient_master_index WHERE patient_level = 'VIP' AND delete_flag = 'N';"
+  },
+  {
+    "id": 38,
+    "problem": "查查各诊断的频次，请输出对应SQL语句",
+    "sql": "SELECT diagnosis_desc, COUNT(*) AS freq FROM medical_encounters GROUP BY diagnosis_desc ORDER BY freq DESC;"
+  },
+  {
+    "id": 39,
+    "problem": "哪些检查项目最常用？，请输出对应SQL语句",
+    "sql": "SELECT item_name, COUNT(*) AS use_cnt FROM medical_orders WHERE order_type = '检查' AND execution_status = '已执行' GROUP BY item_name ORDER BY use_cnt DESC;"
+  },
+  {
+    "id": 40,
+    "problem": "查查设备的能耗情况，请输出对应SQL语句",
+    "sql": "SELECT equipment_id, SUM(energy_consumption) AS total_energy FROM medical_equipment_usage GROUP BY equipment_id;"
+  },
+  {
+    "id": 41,
+    "problem": "哪些药品批次质检不合格？，请输出对应SQL语句",
+    "sql": "SELECT * FROM pharmacy_inventory WHERE quality_check_result = '不合格';"
+  },
+  {
+    "id": 42,
+    "problem": "查查员工的绩效排名，请输出对应SQL语句",
+    "sql": "SELECT staff_id, staff_name, performance_score FROM medical_staff ORDER BY performance_score DESC;"
+  },
+  {
+    "id": 43,
+    "problem": "哪些交易被冲销了？，请输出对应SQL语句",
+    "sql": "SELECT * FROM billing_transactions WHERE reversal_ref_id IS NOT NULL;"
+  },
+  {
+    "id": 44,
+    "problem": "统计医院不同血型的患者各有多少人？，请输出对应SQL语句",
+    "sql": "SELECT blood_type, COUNT(*) AS patient_cnt FROM patient_master_index WHERE delete_flag = 'N' GROUP BY blood_type;"
+  },
+  {
+    "id": 45,
+    "problem": "看看2024年1月有多少就诊记录？，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS visit_cnt FROM medical_encounters WHERE encounter_date BETWEEN '2024-01-01' AND '2024-01-31 23:59:59';"
+  },
+  {
+    "id": 46,
+    "problem": "列出所有VIP患者的姓名和联系方式，请输出对应SQL语句",
+    "sql": "SELECT patient_name, contact_phone FROM patient_master_index WHERE patient_level = 'VIP' AND delete_flag = 'N';"
+  },
+  {
+    "id": 47,
+    "problem": "查查医院现有库存的药品平均单价是多少？，请输出对应SQL语句",
+    "sql": "SELECT AVG(unit_cost) AS avg_unit_cost FROM pharmacy_inventory WHERE inventory_status = '在库';"
+  },
+  {
+    "id": 48,
+    "problem": "哪些药品属于管控药品？，请输出对应SQL语句",
+    "sql": "SELECT * FROM pharmacy_inventory WHERE is_controlled_substance = 1;"
+  },
+  {
+    "id": 49,
+    "problem": "统计每个月新增的患者数量，请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(create_time, '%Y-%m') AS reg_month, COUNT(*) AS patient_cnt FROM patient_master_index GROUP BY DATE_FORMAT(create_time, '%Y-%m') ORDER BY reg_month;"
+  },
+  {
+    "id": 50,
+    "problem": "哪些患者超过60岁？，请输出对应SQL语句",
+    "sql": "SELECT * FROM patient_master_index WHERE age > 60 AND delete_flag = 'N';"
+  },
+  {
+    "id": 51,
+    "problem": "看看急诊科现在有多少床位？，请输出对应SQL语句",
+    "sql": "SELECT total_beds FROM departments_wards WHERE name = '急诊科';"
+  },
+  {
+    "id": 52,
+    "problem": "统计各种就诊类型的数量，请输出对应SQL语句",
+    "sql": "SELECT encounter_type, COUNT(*) AS visit_cnt FROM medical_encounters GROUP BY encounter_type;"
+  },
+  {
+    "id": 53,
+    "problem": "哪些药品快过期了（3个月内）？，请输出对应SQL语句",
+    "sql": "SELECT batch_number, drug_id, expiration_date FROM pharmacy_inventory WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 3 MONTH);"
+  },
+  {
+    "id": 54,
+    "problem": "查查员工绩效最好的前10名，请输出对应SQL语句",
+    "sql": "SELECT staff_id, staff_name, performance_score FROM medical_staff ORDER BY performance_score DESC LIMIT 10;"
+  },
+  {
+    "id": 55,
+    "problem": "统计不同医保类型的患者分布，请输出对应SQL语句",
+    "sql": "SELECT insurance_type, COUNT(*) AS patient_cnt FROM patient_master_index WHERE delete_flag = 'N' GROUP BY insurance_type;"
+  },
+  {
+    "id": 56,
+    "problem": "哪些患者被标记为黑名单？，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name FROM patient_master_index WHERE is_blacklist = 1 AND delete_flag = 'N';"
+  },
+  {
+    "id": 57,
+    "problem": "看看医院的科室都分布在哪些楼？，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT location_building FROM departments_wards WHERE location_building IS NOT NULL AND location_building <> '';"
+  },
+  {
+    "id": 58,
+    "problem": "统计一下药品库存状态分布，请输出对应SQL语句",
+    "sql": "SELECT inventory_status, COUNT(*) AS batch_cnt FROM pharmacy_inventory GROUP BY inventory_status;"
+  },
+  {
+    "id": 59,
+    "problem": "哪些医嘱被取消了？原因是什么？，请输出对应SQL语句",
+    "sql": "SELECT order_id, item_name, cancel_reason FROM medical_orders WHERE execution_status = '已取消';"
+  },
+  {
+    "id": 60,
+    "problem": "查查医生和护士分别有多少人？，请输出对应SQL语句",
+    "sql": "SELECT SUM(CASE WHEN job_title LIKE '%医师%' THEN 1 ELSE 0 END) AS doctor_cnt, SUM(CASE WHEN job_title LIKE '%护士%' THEN 1 ELSE 0 END) AS nurse_cnt FROM medical_staff WHERE is_active = 1;"
+  },
+  {
+    "id": 61,
+    "problem": "看看体温异常的患者（>37.5℃），请输出对应SQL语句",
+    "sql": "SELECT e.*, p.patient_name FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id WHERE e.temperature > 37.5;"
+  },
+  {
+    "id": 62,
+    "problem": "统计各设备的使用状态，请输出对应SQL语句",
+    "sql": "SELECT usage_status, COUNT(*) AS usage_cnt FROM medical_equipment_usage GROUP BY usage_status;"
+  },
+  {
+    "id": 63,
+    "problem": "哪些账单还没付款？，请输出对应SQL语句",
+    "sql": "SELECT * FROM billing_transactions WHERE payment_status IN ('未支付', '部分支付') OR outstanding_amount > 0;"
+  },
+  {
+    "id": 64,
+    "problem": "查出所有男患者的名字和出生日期，请输出对应SQL语句",
+    "sql": "SELECT patient_name, birth_date FROM patient_master_index WHERE gender = 'M' AND delete_flag = 'N';"
+  },
+  {
+    "id": 65,
+    "problem": "列出所有医保类型为'城镇职工医保'的患者姓名和医保余额，请输出对应SQL语句",
+    "sql": "SELECT patient_name, insurance_balance FROM patient_master_index WHERE insurance_type = '城镇职工医保' AND delete_flag = 'N';"
+  },
+  {
+    "id": 66,
+    "problem": "找出所有未支付的就诊记录ID和总费用，请输出对应SQL语句",
+    "sql": "SELECT encounter_id, total_cost FROM medical_encounters WHERE is_paid = 0;"
+  },
+  {
+    "id": 67,
+    "problem": "查出所有医生的姓名、工号和科室ID，请输出对应SQL语句",
+    "sql": "SELECT staff_id, staff_name, employee_no, department_id FROM medical_staff WHERE job_title LIKE '%医师%' AND is_active = 1;"
+  },
+  {
+    "id": 68,
+    "problem": "列出所有药品类医嘱的项目名称和数量，请输出对应SQL语句",
+    "sql": "SELECT order_id, item_name, order_quantity FROM medical_orders WHERE order_type = '药品';"
+  },
+  {
+    "id": 69,
+    "problem": "查出所有库存状态为'在库'的药品批次号和当前数量，请输出对应SQL语句",
+    "sql": "SELECT batch_number, current_quantity FROM pharmacy_inventory WHERE inventory_status = '在库';"
+  },
+  {
+    "id": 70,
+    "problem": "找出所有使用类型为'诊疗使用'的设备使用记录ID和使用时长，请输出对应SQL语句",
+    "sql": "SELECT usage_id, duration_minutes FROM medical_equipment_usage WHERE usage_type = '诊疗使用';"
+  },
+  {
+    "id": 71,
+    "problem": "列出所有已支付的账单号和患者支付金额，请输出对应SQL语句",
+    "sql": "SELECT billing_no, patient_paid FROM billing_transactions WHERE payment_status = '已支付';"
+  },
+  {
+    "id": 72,
+    "problem": "查出所有急诊科的科室名称和总床位数，请输出对应SQL语句",
+    "sql": "SELECT name, total_beds FROM departments_wards WHERE name = '急诊科';"
+  },
+  {
+    "id": 73,
+    "problem": "找出所有黑名单患者的名字和联系方式，请输出对应SQL语句",
+    "sql": "SELECT patient_name, contact_phone FROM patient_master_index WHERE is_blacklist = 1 AND delete_flag = 'N';"
+  },
+  {
+    "id": 74,
+    "problem": "列出所有男性患者的姓名和出生日期，请输出对应SQL语句",
+    "sql": "SELECT patient_name, birth_date FROM patient_master_index WHERE gender = 'M' AND delete_flag = 'N';"
+  },
+  {
+    "id": 75,
+    "problem": "找出医保类型是'城镇职工医保'的患者数量，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS patient_cnt FROM patient_master_index WHERE insurance_type = '城镇职工医保' AND delete_flag = 'N';"
+  },
+  {
+    "id": 76,
+    "problem": "显示所有姓'李'的患者信息，请输出对应SQL语句",
+    "sql": "SELECT * FROM patient_master_index WHERE patient_name LIKE '李%' AND delete_flag = 'N';"
+  },
+  {
+    "id": 77,
+    "problem": "列出所有在2023年创建的就诊记录ID和就诊日期，请输出对应SQL语句",
+    "sql": "SELECT encounter_id, encounter_date FROM medical_encounters WHERE YEAR(encounter_date) = 2023;"
+  },
+  {
+    "id": 78,
+    "problem": "有多少种不同的诊断描述？，请输出对应SQL语句",
+    "sql": "SELECT COUNT(DISTINCT diagnosis_desc) AS diag_cnt FROM medical_encounters;"
+  },
+  {
+    "id": 79,
+    "problem": "列出所有在职的医护人员姓名和工号，请输出对应SQL语句",
+    "sql": "SELECT staff_name, employee_no FROM medical_staff WHERE is_active = 1;"
+  },
+  {
+    "id": 80,
+    "problem": "显示所有属于'临床科室'类型的科室名称和代码，请输出对应SQL语句",
+    "sql": "SELECT name, code FROM departments_wards WHERE type = '临床科室';"
+  },
+  {
+    "id": 81,
+    "problem": "找出所有已支付的账单总净额是多少？，请输出对应SQL语句",
+    "sql": "SELECT SUM(net_amount) AS total_net FROM billing_transactions WHERE payment_status = '已支付';"
+  },
+  {
+    "id": 82,
+    "problem": "列出所有单价超过100元的药品医嘱的ID和总价，请输出对应SQL语句",
+    "sql": "SELECT order_id, total_price FROM medical_orders WHERE order_type = '药品' AND unit_price > 100;"
+  },
+  {
+    "id": 83,
+    "problem": "显示患者'王建国'的身份证号和联系电话，请输出对应SQL语句",
+    "sql": "SELECT national_id, contact_phone FROM patient_master_index WHERE patient_name = '王建国' AND delete_flag = 'N';"
+  },
+  {
+    "id": 84,
+    "problem": "找出所有在'门诊药房'存储的药品库存记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM pharmacy_inventory WHERE storage_location = '门诊药房';"
+  },
+  {
+    "id": 85,
+    "problem": "有多少台医疗设备的下次维护日期已经过了今天？，请输出对应SQL语句",
+    "sql": "SELECT COUNT(DISTINCT equipment_id) AS need_maintain_cnt FROM medical_equipment_usage WHERE next_maintenance_date < CURDATE();"
+  },
+  {
+    "id": 86,
+    "problem": "列出所有职位是'主任医师'的在职医生姓名，请输出对应SQL语句",
+    "sql": "SELECT staff_name FROM medical_staff WHERE job_title = '主任医师' AND is_active = 1;"
+  },
+  {
+    "id": 87,
+    "problem": "显示所有被标记为黑名单的患者ID和姓名，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name FROM patient_master_index WHERE is_blacklist = 1 AND delete_flag = 'N';"
+  },
+  {
+    "id": 88,
+    "problem": "找出所有在2024年10月开具的医嘱ID和开始时间，请输出对应SQL语句",
+    "sql": "SELECT order_id, start_datetime FROM medical_orders WHERE DATE_FORMAT(start_datetime, '%Y-%m') = '2024-10';"
+  },
+  {
+    "id": 89,
+    "problem": "列出所有'检查'类型的医嘱，并按单价降序排列，请输出对应SQL语句",
+    "sql": "SELECT * FROM medical_orders WHERE order_type = '检查' ORDER BY unit_price DESC;"
+  },
+  {
+    "id": 90,
+    "problem": "显示所有医保拒付率为100%（即医保覆盖率为0）的账单详情，请输出对应SQL语句",
+    "sql": "SELECT * FROM billing_transactions WHERE insurance_coverage = 0;"
+  },
+  {
+    "id": 91,
+    "problem": "找出所有'儿科'科室的总床位数和可用床位数，请输出对应SQL语句",
+    "sql": "SELECT total_beds, available_beds FROM departments_wards WHERE name LIKE '%儿科%';"
+  },
+  {
+    "id": 92,
+    "problem": "列出所有体温高于38.5摄氏度的就诊记录ID和体温值，请输出对应SQL语句",
+    "sql": "SELECT encounter_id, temperature FROM medical_encounters WHERE temperature > 38.5;"
+  },
+  {
+    "id": 93,
+    "problem": "列出所有男性患者的姓名和出生日期，请输出对应SQL语句",
+    "sql": "SELECT patient_name, birth_date FROM patient_master_index WHERE gender = 'M' AND delete_flag = 'N';"
+  },
+  {
+    "id": 94,
+    "problem": "找出所有医保类型是“城镇职工医保”的患者数量，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS patient_cnt FROM patient_master_index WHERE insurance_type = '城镇职工医保' AND delete_flag = 'N';"
+  },
+  {
+    "id": 95,
+    "problem": "显示所有医生的工号、姓名和职位，请输出对应SQL语句",
+    "sql": "SELECT employee_no, staff_name, job_title FROM medical_staff WHERE job_title LIKE '%医师%';"
+  },
+  {
+    "id": 96,
+    "problem": "列出所有药品库存中当前数量大于1000的药品ID和数量，请输出对应SQL语句",
+    "sql": "SELECT drug_id, current_quantity FROM pharmacy_inventory WHERE current_quantity > 1000;"
+  },
+  {
+    "id": 97,
+    "problem": "找出所有已支付的账单总净额是多少？，请输出对应SQL语句",
+    "sql": "SELECT SUM(net_amount) AS total_net FROM billing_transactions WHERE payment_status = '已支付';"
+  },
+  {
+    "id": 98,
+    "problem": "查询所有在2024年创建的就诊记录ID和就诊日期，请输出对应SQL语句",
+    "sql": "SELECT encounter_id, encounter_date FROM medical_encounters WHERE YEAR(encounter_date) = 2024;"
+  },
+  {
+    "id": 99,
+    "problem": "显示所有护士的姓名和联系电话，请输出对应SQL语句",
+    "sql": "SELECT staff_name, contact_phone FROM medical_staff WHERE job_title LIKE '%护士%';"
+  },
+  {
+    "id": 100,
+    "problem": "列出所有科室的名称和所在楼栋，请输出对应SQL语句",
+    "sql": "SELECT name, location_building FROM departments_wards;"
+  },
+  {
+    "id": 101,
+    "problem": "找出所有处方医嘱的总价格最高的前5条记录，请输出对应SQL语句",
+    "sql": "SELECT order_id, item_name, total_price FROM medical_orders WHERE order_type = '药品' ORDER BY total_price DESC LIMIT 5;"
+  },
+  {
+    "id": 102,
+    "problem": "查询所有患者的平均年龄，请输出对应SQL语句",
+    "sql": "SELECT AVG(age) AS avg_age FROM patient_master_index WHERE delete_flag = 'N';"
+  },
+  {
+    "id": 103,
+    "problem": "显示所有在“门诊药房”存储的药品库存ID和批号，请输出对应SQL语句",
+    "sql": "SELECT inventory_id, batch_number FROM pharmacy_inventory WHERE storage_location = '门诊药房';"
+  },
+  {
+    "id": 104,
+    "problem": "列出所有已离职的员工姓名和离职日期，请输出对应SQL语句",
+    "sql": "SELECT staff_name, resignation_date FROM medical_staff WHERE is_active = 0 AND resignation_date IS NOT NULL;"
+  },
+  {
+    "id": 105,
+    "problem": "找出所有“检查”类型的医嘱数量，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS check_cnt FROM medical_orders WHERE order_type = '检查';"
+  },
+  {
+    "id": 106,
+    "problem": "查询所有患者主索引表中，医保余额大于等于10000元的患者人数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS patient_cnt FROM patient_master_index WHERE insurance_balance >= 10000 AND delete_flag = 'N';"
+  },
+  {
+    "id": 107,
+    "problem": "显示所有“儿科”的科室ID和负责人ID，请输出对应SQL语句",
+    "sql": "SELECT dept_ward_id, head_doctor_id FROM departments_wards WHERE name LIKE '%儿科%';"
+  },
+  {
+    "id": 108,
+    "problem": "列出所有在2025年到期的药品库存ID和到期日期，请输出对应SQL语句",
+    "sql": "SELECT inventory_id, expiration_date FROM pharmacy_inventory WHERE YEAR(expiration_date) = 2025;"
+  },
+  {
+    "id": 109,
+    "problem": "找出所有“VIP”级别的患者姓名和联系方式，请输出对应SQL语句",
+    "sql": "SELECT patient_name, contact_phone FROM patient_master_index WHERE patient_level = 'VIP' AND delete_flag = 'N';"
+  },
+  {
+    "id": 110,
+    "problem": "查询所有“急诊”就诊类型的平均费用，请输出对应SQL语句",
+    "sql": "SELECT AVG(total_cost) AS avg_cost FROM medical_encounters WHERE encounter_type = '急诊';"
+  },
+  {
+    "id": 111,
+    "problem": "列出所有设备使用记录中，使用时长大于60分钟的记录ID和时长，请输出对应SQL语句",
+    "sql": "SELECT usage_id, duration_minutes FROM medical_equipment_usage WHERE duration_minutes > 60;"
+  },
+  {
+    "id": 112,
+    "problem": "列出所有男性的患者姓名和联系方式，请输出对应SQL语句",
+    "sql": "SELECT patient_name, contact_phone FROM patient_master_index WHERE gender = 'M' AND delete_flag = 'N';"
+  },
+  {
+    "id": 113,
+    "problem": "找找看有没有叫'李华'的患者，显示他的ID和医保类型，请输出对应SQL语句",
+    "sql": "SELECT patient_id, insurance_type FROM patient_master_index WHERE patient_name = '李华' AND delete_flag = 'N';"
+  },
+  {
+    "id": 114,
+    "problem": "把所有被标记为黑名单的患者ID给我瞅瞅，请输出对应SQL语句",
+    "sql": "SELECT patient_id FROM patient_master_index WHERE is_blacklist = 1 AND delete_flag = 'N';"
+  },
+  {
+    "id": 115,
+    "problem": "查一下所有血型是'O'型的患者有多少个，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS patient_cnt FROM patient_master_index WHERE blood_type = 'O' AND delete_flag = 'N';"
+  },
+  {
+    "id": 116,
+    "problem": "给我一份2023年新增的所有患者的名单和创建时间，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name, create_time FROM patient_master_index WHERE YEAR(create_time) = 2023 AND delete_flag = 'N';"
+  },
+  {
+    "id": 117,
+    "problem": "看看哪个科室代码是'DEPT001'，叫啥名字，请输出对应SQL语句",
+    "sql": "SELECT name FROM departments_wards WHERE code = 'DEPT001';"
+  },
+  {
+    "id": 118,
+    "problem": "列出所有属于'临床科室'类型的科室名称，请输出对应SQL语句",
+    "sql": "SELECT name FROM departments_wards WHERE type = '临床科室';"
+  },
+  {
+    "id": 119,
+    "problem": "找出总床位超过40张的科室有哪些，请输出对应SQL语句",
+    "sql": "SELECT name, total_beds FROM departments_wards WHERE total_beds > 40;"
+  },
+  {
+    "id": 120,
+    "problem": "告诉我所有在职的医生和护士的名字，请输出对应SQL语句",
+    "sql": "SELECT staff_name FROM medical_staff WHERE is_active = 1 AND (job_title LIKE '%医师%' OR job_title LIKE '%护士%');"
+  },
+  {
+    "id": 121,
+    "problem": "列出所有职称是'主任医师'的员工工号和姓名，请输出对应SQL语句",
+    "sql": "SELECT employee_no, staff_name FROM medical_staff WHERE job_title = '主任医师';"
+  },
+  {
+    "id": 122,
+    "problem": "看看哪些药品批次号里带有'2024'的，请输出对应SQL语句",
+    "sql": "SELECT * FROM pharmacy_inventory WHERE batch_number LIKE '%2024%';"
+  },
+  {
+    "id": 123,
+    "problem": "查一下库存里'阿莫西林胶囊'的总数量（假设drug_id=12345代表它），请输出对应SQL语句",
+    "sql": "SELECT SUM(current_quantity) AS total_qty FROM pharmacy_inventory WHERE drug_id = 12345;"
+  },
+  {
+    "id": 124,
+    "problem": "列出所有已经过期的药品批次，请输出对应SQL语句",
+    "sql": "SELECT * FROM pharmacy_inventory WHERE expiration_date < CURDATE();"
+  },
+  {
+    "id": 125,
+    "problem": "找找看单价低于5元的药品库存记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM pharmacy_inventory WHERE unit_cost < 5;"
+  },
+  {
+    "id": 126,
+    "problem": "列出所有'门诊'类型的就诊记录ID和日期，请输出对应SQL语句",
+    "sql": "SELECT encounter_id, encounter_date FROM medical_encounters WHERE encounter_type = '门诊';"
+  },
+  {
+    "id": 127,
+    "problem": "查一下诊断为'高血压'的就诊次数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS visit_cnt FROM medical_encounters WHERE diagnosis_desc LIKE '%高血压%';"
+  },
+  {
+    "id": 128,
+    "problem": "找出体温高于38.5度的就诊记录ID，请输出对应SQL语句",
+    "sql": "SELECT encounter_id FROM medical_encounters WHERE temperature > 38.5;"
+  },
+  {
+    "id": 129,
+    "problem": "列出所有还没付费的就诊记录ID，请输出对应SQL语句",
+    "sql": "SELECT encounter_id FROM medical_encounters WHERE is_paid = 0;"
+  },
+  {
+    "id": 130,
+    "problem": "看看有多少病人是黑名单用户？，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS blacklist_cnt FROM patient_master_index WHERE is_blacklist = 1 AND delete_flag = 'N';"
+  },
+  {
+    "id": 131,
+    "problem": "统计不同性别的患者数量，请输出对应SQL语句",
+    "sql": "SELECT gender, COUNT(*) AS patient_cnt FROM patient_master_index WHERE delete_flag = 'N' GROUP BY gender;"
+  },
+  {
+    "id": 132,
+    "problem": "查查年龄大于60岁的老年患者有哪些，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name FROM patient_master_index WHERE age > 60 AND delete_flag = 'N';"
+  },
+  {
+    "id": 133,
+    "problem": "找找那些没有血型记录的病人，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name FROM patient_master_index WHERE (blood_type IS NULL OR blood_type = '') AND delete_flag = 'N';"
+  },
+  {
+    "id": 134,
+    "problem": "看看哪些病人是VIP等级的，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name FROM patient_master_index WHERE patient_level = 'VIP' AND delete_flag = 'N';"
+  },
+  {
+    "id": 135,
+    "problem": "统计不同类型的医保患者数量，请输出对应SQL语句",
+    "sql": "SELECT insurance_type, COUNT(*) AS patient_cnt FROM patient_master_index WHERE delete_flag = 'N' GROUP BY insurance_type;"
+  },
+  {
+    "id": 136,
+    "problem": "看看2024年1月创建的患者档案，请输出对应SQL语句",
+    "sql": "SELECT * FROM patient_master_index WHERE DATE_FORMAT(create_time, '%Y-%m') = '2024-01' AND delete_flag = 'N';"
+  },
+  {
+    "id": 137,
+    "problem": "查查最近一个月更新的患者信息，请输出对应SQL语句",
+    "sql": "SELECT * FROM patient_master_index WHERE update_time >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH) AND delete_flag = 'N';"
+  },
+  {
+    "id": 138,
+    "problem": "统计各年龄段患者分布，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN age < 18 THEN '未成年' WHEN age BETWEEN 18 AND 35 THEN '青年' WHEN age BETWEEN 36 AND 60 THEN '中年' ELSE '老年' END AS age_group, COUNT(*) AS patient_cnt FROM patient_master_index WHERE delete_flag = 'N' GROUP BY age_group;"
+  },
+  {
+    "id": 139,
+    "problem": "看看不同职位的医护人员有多少，请输出对应SQL语句",
+    "sql": "SELECT job_title, COUNT(*) AS staff_cnt FROM medical_staff GROUP BY job_title;"
+  },
+  {
+    "id": 140,
+    "problem": "查查哪些医护人员是主任医师，请输出对应SQL语句",
+    "sql": "SELECT staff_id, staff_name FROM medical_staff WHERE job_title = '主任医师';"
+  },
+  {
+    "id": 141,
+    "problem": "统计各科室的医护人员数量，请输出对应SQL语句",
+    "sql": "SELECT department_id, COUNT(*) AS staff_cnt FROM medical_staff WHERE is_active = 1 GROUP BY department_id;"
+  },
+  {
+    "id": 142,
+    "problem": "看看已离职的医护人员，请输出对应SQL语句",
+    "sql": "SELECT staff_id, staff_name, resignation_date FROM medical_staff WHERE is_active = 0;"
+  },
+  {
+    "id": 143,
+    "problem": "查查绩效分数在90分以上的优秀员工，请输出对应SQL语句",
+    "sql": "SELECT staff_id, staff_name, performance_score FROM medical_staff WHERE performance_score >= 90;"
+  },
+  {
+    "id": 144,
+    "problem": "看看哪些科室有可用床位，请输出对应SQL语句",
+    "sql": "SELECT name, available_beds FROM departments_wards WHERE available_beds > 0;"
+  },
+  {
+    "id": 145,
+    "problem": "统计各类科室的数量，请输出对应SQL语句",
+    "sql": "SELECT type, COUNT(*) AS dept_cnt FROM departments_wards GROUP BY type;"
+  },
+  {
+    "id": 146,
+    "problem": "查查在门诊楼的科室，请输出对应SQL语句",
+    "sql": "SELECT name FROM departments_wards WHERE location_building LIKE '%门诊%';"
+  },
+  {
+    "id": 147,
+    "problem": "看看科室的联系方式，请输出对应SQL语句",
+    "sql": "SELECT name, contact_number, email FROM departments_wards;"
+  },
+  {
+    "id": 148,
+    "problem": "统计启用状态的科室数量，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS active_dept_cnt FROM departments_wards WHERE is_active = 1;"
+  },
+  {
+    "id": 149,
+    "problem": "每个科室的医生数量是多少？按医生数从多到少排，请输出对应SQL语句",
+    "sql": "SELECT d.name AS department_name, COUNT(s.staff_id) AS doctor_cnt FROM departments_wards d LEFT JOIN medical_staff s ON d.dept_ward_id = s.department_id AND s.job_title LIKE '%医师%' AND s.is_active = 1 GROUP BY d.dept_ward_id, d.name ORDER BY doctor_cnt DESC;"
+  },
+  {
+    "id": 150,
+    "problem": "看看每个科室接诊的患者人数，按从多到少排序，请输出对应SQL语句",
+    "sql": "SELECT d.name AS department_name, COUNT(DISTINCT e.patient_id) AS patient_cnt FROM medical_encounters e JOIN departments_wards d ON e.department_id = d.dept_ward_id GROUP BY d.dept_ward_id, d.name ORDER BY patient_cnt DESC;"
+  },
+  {
+    "id": 151,
+    "problem": "找出每个患者最近一次就诊的时间和诊断，请输出对应SQL语句",
+    "sql": "SELECT patient_id, encounter_id, encounter_date, diagnosis_desc FROM (SELECT patient_id, encounter_id, encounter_date, diagnosis_desc, ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY encounter_date DESC) AS rn FROM medical_encounters) t WHERE rn = 1;"
+  },
+  {
+    "id": 152,
+    "problem": "统计各医生的平均接诊费用和接诊次数，请输出对应SQL语句",
+    "sql": "SELECT s.staff_name, AVG(e.total_cost) AS avg_cost, COUNT(e.encounter_id) AS visit_cnt FROM medical_encounters e JOIN medical_staff s ON e.doctor_id = s.staff_id WHERE s.job_title LIKE '%医师%' GROUP BY s.staff_id, s.staff_name;"
+  },
+  {
+    "id": 153,
+    "problem": "找出住院时间超过10天的患者及所在科室，请输出对应SQL语句",
+    "sql": "SELECT p.patient_name, d.name AS department_name, DATEDIFF(e.discharge_date, e.encounter_date) AS stay_days FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id JOIN departments_wards d ON e.department_id = d.dept_ward_id WHERE e.encounter_type = '住院' AND DATEDIFF(e.discharge_date, e.encounter_date) > 10;"
+  },
+  {
+    "id": 154,
+    "problem": "查询患者就诊时开出的药品及价格，请输出对应SQL语句",
+    "sql": "SELECT p.patient_name, e.encounter_id, o.item_name, o.unit_price, o.order_quantity, o.total_price FROM medical_orders o JOIN medical_encounters e ON o.encounter_id = e.encounter_id JOIN patient_master_index p ON e.patient_id = p.patient_id WHERE o.order_type = '药品';"
+  },
+  {
+    "id": 155,
+    "problem": "统计各科室的月均收入，请输出对应SQL语句",
+    "sql": "SELECT name, revenue_target / 12 AS monthly_income FROM departments_wards;"
+  },
+  {
+    "id": 156,
+    "problem": "找出使用次数最多的医疗设备TOP 10，请输出对应SQL语句",
+    "sql": "SELECT equipment_id, COUNT(*) AS use_cnt FROM medical_equipment_usage GROUP BY equipment_id ORDER BY use_cnt DESC LIMIT 10;"
+  },
+  {
+    "id": 157,
+    "problem": "查询主任医师及其下属的医生信息，请输出对应SQL语句",
+    "sql": "SELECT s.staff_name, sub.staff_name AS subordinate_name FROM medical_staff s LEFT JOIN medical_staff sub ON sub.supervisor_id = s.staff_id WHERE s.job_title = '主任医师';"
+  },
+  {
+    "id": 158,
+    "problem": "查询同时有门诊和住院记录的患者，请输出对应SQL语句",
+    "sql": "SELECT patient_id FROM medical_encounters GROUP BY patient_id HAVING SUM(encounter_type = '门诊') > 0 AND SUM(encounter_type = '住院') > 0;"
+  },
+  {
+    "id": 159,
+    "problem": "找出费用最高的前5次就诊记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM medical_encounters ORDER BY total_cost DESC LIMIT 5;"
+  },
+  {
+    "id": 160,
+    "problem": "查询各科室的床位使用率，请输出对应SQL语句",
+    "sql": "SELECT name, total_beds, available_beds, (total_beds - available_beds) / total_beds * 100 AS bed_usage_rate FROM departments_wards WHERE total_beds > 0;"
+  },
+  {
+    "id": 161,
+    "problem": "统计每月药品采购金额，请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(purchase_date, '%Y-%m') AS purchase_month, SUM(total_cost) AS purchase_amount FROM pharmacy_inventory GROUP BY DATE_FORMAT(purchase_date, '%Y-%m') ORDER BY purchase_month;"
+  },
+  {
+    "id": 162,
+    "problem": "找出重复的药品批次记录，请输出对应SQL语句",
+    "sql": "SELECT drug_id, batch_number, COUNT(*) AS dup_cnt FROM pharmacy_inventory GROUP BY drug_id, batch_number HAVING COUNT(*) > 1;"
+  },
+  {
+    "id": 163,
+    "problem": "查询各年龄段患者的平均就诊费用，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN p.age < 18 THEN '未成年' WHEN p.age BETWEEN 18 AND 35 THEN '青年' WHEN p.age BETWEEN 36 AND 60 THEN '中年' ELSE '老年' END AS age_group, AVG(e.total_cost) AS avg_cost FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id GROUP BY age_group;"
+  },
+  {
+    "id": 164,
+    "problem": "统计各供应商的药品采购情况，请输出对应SQL语句",
+    "sql": "SELECT supplier_id, COUNT(*) AS batch_cnt, SUM(total_cost) AS total_cost FROM pharmacy_inventory GROUP BY supplier_id;"
+  },
+  {
+    "id": 165,
+    "problem": "查询医护人员的排班冲突情况，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT s.staff_id, s.staff_name FROM medical_staff s JOIN JSON_TABLE(s.work_schedule, '$[*]' COLUMNS(d VARCHAR(10) PATH '$.date', st TIME PATH '$.start_time', et TIME PATH '$.end_time')) a JOIN JSON_TABLE(s.work_schedule, '$[*]' COLUMNS(d VARCHAR(10) PATH '$.date', st TIME PATH '$.start_time', et TIME PATH '$.end_time')) b ON a.d = b.d AND a.st < b.et AND b.st < a.et AND NOT (a.st = b.st AND a.et = b.et);"
+  },
+  {
+    "id": 166,
+    "problem": "找出超过90天未使用的设备，请输出对应SQL语句",
+    "sql": "SELECT equipment_id, MAX(start_time) AS last_use_time FROM medical_equipment_usage GROUP BY equipment_id HAVING MAX(start_time) < DATE_SUB(CURDATE(), INTERVAL 90 DAY);"
+  },
+  {
+    "id": 167,
+    "problem": "查出每个患者最近一次就诊的日期、科室名和主治医生名，请输出对应SQL语句",
+    "sql": "SELECT patient_id, encounter_date, department_name, doctor_name FROM (SELECT e.patient_id, e.encounter_date, d.name AS department_name, s.staff_name AS doctor_name, ROW_NUMBER() OVER (PARTITION BY e.patient_id ORDER BY e.encounter_date DESC) AS rn FROM medical_encounters e LEFT JOIN departments_wards d ON e.department_id = d.dept_ward_id LEFT JOIN medical_staff s ON e.doctor_id = s.staff_id) t WHERE rn = 1;"
+  },
+  {
+    "id": 168,
+    "problem": "列出所有住院超过7天的患者姓名、住院天数和总费用，请输出对应SQL语句",
+    "sql": "SELECT p.patient_name, DATEDIFF(e.discharge_date, e.encounter_date) AS stay_days, e.total_cost FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id WHERE e.encounter_type = '住院' AND DATEDIFF(e.discharge_date, e.encounter_date) > 7;"
+  },
+  {
+    "id": 169,
+    "problem": "找出每个科室的负责人姓名和联系电话，请输出对应SQL语句",
+    "sql": "SELECT d.name AS department_name, s.staff_name AS head_doctor, s.contact_phone FROM departments_wards d LEFT JOIN medical_staff s ON d.head_doctor_id = s.staff_id;"
+  },
+  {
+    "id": 170,
+    "problem": "查出所有自费患者的就诊记录，包括姓名、就诊类型和自付金额，请输出对应SQL语句",
+    "sql": "SELECT p.patient_name, e.encounter_type, e.patient_payment FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id WHERE e.insurance_payment = 0 AND e.patient_payment > 0;"
+  },
+  {
+    "id": 171,
+    "problem": "列出所有过期药品的名称、批次号和过期日期，请输出对应SQL语句",
+    "sql": "SELECT batch_number, expiration_date FROM pharmacy_inventory WHERE expiration_date < CURDATE();"
+  },
+  {
+    "id": 172,
+    "problem": "查出每位医生开的药品类医嘱总金额（按医生分组），请输出对应SQL语句",
+    "sql": "SELECT e.doctor_id, s.staff_name, SUM(o.total_price) AS total_amount FROM medical_orders o JOIN medical_encounters e ON o.encounter_id = e.encounter_id LEFT JOIN medical_staff s ON e.doctor_id = s.staff_id WHERE o.order_type = '药品' GROUP BY e.doctor_id, s.staff_name;"
+  },
+  {
+    "id": 173,
+    "problem": "列出2024年每个科室的就诊人次，并按人次降序排列，请输出对应SQL语句",
+    "sql": "SELECT d.name AS department_name, COUNT(e.encounter_id) AS visit_cnt FROM medical_encounters e JOIN departments_wards d ON e.department_id = d.dept_ward_id WHERE YEAR(e.encounter_date) = 2024 GROUP BY d.dept_ward_id, d.name ORDER BY visit_cnt DESC;"
+  },
+  {
+    "id": 174,
+    "problem": "找出每个患者的最新一次就诊日期和诊断描述，请输出对应SQL语句",
+    "sql": "SELECT patient_id, encounter_id, encounter_date, diagnosis_desc FROM (SELECT patient_id, encounter_id, encounter_date, diagnosis_desc, ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY encounter_date DESC) AS rn FROM medical_encounters) t WHERE rn = 1;"
+  },
+  {
+    "id": 175,
+    "problem": "统计每个医生（按姓名）在2024年的接诊次数和总收入，请输出对应SQL语句",
+    "sql": "SELECT s.staff_name, COUNT(e.encounter_id) AS visit_cnt, SUM(e.total_cost) AS total_income FROM medical_encounters e JOIN medical_staff s ON e.doctor_id = s.staff_id WHERE YEAR(e.encounter_date) = 2024 GROUP BY s.staff_id, s.staff_name;"
+  },
+  {
+    "id": 176,
+    "problem": "列出所有药品医嘱中，使用了'阿莫西林'的患者姓名、就诊ID和用药数量，请输出对应SQL语句",
+    "sql": "SELECT p.patient_name, e.encounter_id, o.order_quantity FROM medical_orders o JOIN medical_encounters e ON o.encounter_id = e.encounter_id JOIN patient_master_index p ON e.patient_id = p.patient_id WHERE o.order_type = '药品' AND o.item_name LIKE '%阿莫西林%';"
+  },
+  {
+    "id": 177,
+    "problem": "显示每个科室的主任医生姓名和护士长姓名，请输出对应SQL语句",
+    "sql": "SELECT d.name AS department_name, hd.staff_name AS head_doctor, hn.staff_name AS head_nurse FROM departments_wards d LEFT JOIN medical_staff hd ON d.head_doctor_id = hd.staff_id LEFT JOIN medical_staff hn ON d.head_nurse_id = hn.staff_id;"
+  },
+  {
+    "id": 178,
+    "problem": "计算每个患者在2024年的总消费金额和医保支付总额，请输出对应SQL语句",
+    "sql": "SELECT e.patient_id, SUM(e.total_cost) AS total_cost, SUM(e.insurance_payment) AS total_insurance FROM medical_encounters e WHERE YEAR(e.encounter_date) = 2024 GROUP BY e.patient_id;"
+  },
+  {
+    "id": 179,
+    "problem": "列出所有在2024年11月有过就诊记录的患者姓名和联系电话，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT p.patient_name, p.contact_phone FROM patient_master_index p JOIN medical_encounters e ON p.patient_id = e.patient_id WHERE DATE_FORMAT(e.encounter_date, '%Y-%m') = '2024-11';"
+  },
+  {
+    "id": 180,
+    "problem": "统计不同医保类型患者的平均年龄，请输出对应SQL语句",
+    "sql": "SELECT insurance_type, AVG(age) AS avg_age FROM patient_master_index WHERE delete_flag = 'N' GROUP BY insurance_type;"
+  },
+  {
+    "id": 181,
+    "problem": "找出所有由'张伟'医生诊治过的门诊患者姓名和就诊日期，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT p.patient_name, e.encounter_date FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id JOIN medical_staff s ON e.doctor_id = s.staff_id WHERE s.staff_name = '张伟' AND e.encounter_type = '门诊';"
+  },
+  {
+    "id": 182,
+    "problem": "显示所有'检查'费用的项目描述、数量、单价和总净额，并关联到账单表，请输出对应SQL语句",
+    "sql": "SELECT b.billing_no, b.item_description, b.quantity, b.unit_price, b.net_amount FROM billing_transactions b WHERE b.item_type = '检查';"
+  },
+  {
+    "id": 183,
+    "problem": "列出所有在2023年采购、且将在未来6个月内过期的药品批次号和过期日期，请输出对应SQL语句",
+    "sql": "SELECT batch_number, expiration_date FROM pharmacy_inventory WHERE YEAR(purchase_date) = 2023 AND expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 6 MONTH);"
+  },
+  {
+    "id": 184,
+    "problem": "找出所有执行状态为'已取消'的医嘱的医生姓名、患者姓名和取消原因，请输出对应SQL语句",
+    "sql": "SELECT s.staff_name AS doctor_name, p.patient_name, o.cancel_reason FROM medical_orders o JOIN medical_encounters e ON o.encounter_id = e.encounter_id JOIN medical_staff s ON e.doctor_id = s.staff_id JOIN patient_master_index p ON e.patient_id = p.patient_id WHERE o.execution_status = '已取消';"
+  },
+  {
+    "id": 185,
+    "problem": "列出所有患者姓名和他们的紧急联系人姓名及关系，请输出对应SQL语句",
+    "sql": "SELECT patient_name, JSON_UNQUOTE(JSON_EXTRACT(emergency_contact, '$.name')) AS contact_name, JSON_UNQUOTE(JSON_EXTRACT(emergency_contact, '$.relation')) AS relation FROM patient_master_index WHERE delete_flag = 'N';"
+  },
+  {
+    "id": 186,
+    "problem": "找出所有在'心血管内科'就诊过的患者姓名和诊断描述，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT p.patient_name, e.diagnosis_desc FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id JOIN departments_wards d ON e.department_id = d.dept_ward_id WHERE d.name = '心血管内科';"
+  },
+  {
+    "id": 187,
+    "problem": "显示每个医护人员的直接上级姓名，请输出对应SQL语句",
+    "sql": "SELECT s.staff_name, sup.staff_name AS superior_name FROM medical_staff s LEFT JOIN medical_staff sup ON s.supervisor_id = sup.staff_id;"
+  },
+  {
+    "id": 188,
+    "problem": "计算2024年每个季度的总收入（按就诊记录计算），请输出对应SQL语句",
+    "sql": "SELECT QUARTER(e.encounter_date) AS q, SUM(e.total_cost) AS total_income FROM medical_encounters e WHERE YEAR(e.encounter_date) = 2024 GROUP BY QUARTER(e.encounter_date) ORDER BY q;"
+  },
+  {
+    "id": 189,
+    "problem": "列出所有在2024年有过住院记录的患者姓名和他们的出院去向，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT p.patient_name, e.discharge_disposition FROM medical_encounters e JOIN patient_master_index p ON e.patient_id = p.patient_id WHERE e.encounter_type = '住院' AND YEAR(e.encounter_date) = 2024;"
+  },
+  {
+    "id": 190,
+    "problem": "统计不同性别医护人员的数量，请输出对应SQL语句",
+    "sql": "SELECT gender, COUNT(*) AS staff_cnt FROM medical_staff GROUP BY gender;"
+  },
+  {
+    "id": 191,
+    "problem": "找出所有在同一天内有两次及以上就诊记录的患者ID和就诊日期，请输出对应SQL语句",
+    "sql": "SELECT patient_id, DATE(encounter_date) AS visit_date, COUNT(*) AS visit_cnt FROM medical_encounters GROUP BY patient_id, DATE(encounter_date) HAVING COUNT(*) >= 2;"
+  },
+  {
+    "id": 192,
+    "problem": "列出2024年每个科室的就诊人次，并按人次降序排列，请输出对应SQL语句",
+    "sql": "SELECT d.name AS department_name, COUNT(e.encounter_id) AS visit_cnt FROM medical_encounters e JOIN departments_wards d ON e.department_id = d.dept_ward_id WHERE YEAR(e.encounter_date) = 2024 GROUP BY d.dept_ward_id, d.name ORDER BY visit_cnt DESC;"
+  },
+  {
+    "id": 193,
+    "problem": "找出每个医生看过的病人总数，并列出看诊人数最多的前10位医生姓名，请输出对应SQL语句",
+    "sql": "SELECT s.staff_name, COUNT(DISTINCT e.patient_id) AS patient_cnt FROM medical_encounters e JOIN medical_staff s ON e.doctor_id = s.staff_id GROUP BY s.staff_id, s.staff_name ORDER BY patient_cnt DESC LIMIT 10;"
+  },
+  {
+    "id": 194,
+    "problem": "统计每个患者在2024年的总消费金额（包括医保和个人支付），请输出对应SQL语句",
+    "sql": "SELECT e.patient_id, SUM(e.insurance_payment + e.patient_payment) AS total_cost FROM medical_encounters e WHERE YEAR(e.encounter_date) = 2024 GROUP BY e.patient_id;"
+  },
+  {
+    "id": 195,
+    "problem": "列出所有在“药剂科”工作的员工姓名和职位，请输出对应SQL语句",
+    "sql": "SELECT s.staff_name, s.job_title FROM medical_staff s JOIN departments_wards d ON s.department_id = d.dept_ward_id WHERE d.name = '药剂科';"
+  },
+  {
+    "id": 196,
+    "problem": "找出所有“检查”类医嘱对应的项目名称和总费用，并按费用降序排，请输出对应SQL语句",
+    "sql": "SELECT item_name, SUM(total_price) AS total_cost FROM medical_orders WHERE order_type = '检查' AND execution_status = '已执行' GROUP BY item_name ORDER BY total_cost DESC;"
+  },
+  {
+    "id": 197,
+    "problem": "查询2024年每个月的总收入（净额），请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(transaction_date, '%Y-%m') AS income_month, SUM(net_amount) AS total_income FROM billing_transactions WHERE YEAR(transaction_date) = 2024 GROUP BY DATE_FORMAT(transaction_date, '%Y-%m') ORDER BY income_month;"
+  },
+  {
+    "id": 198,
+    "problem": "帮我算算每个患者一共看过几次病，请输出对应SQL语句",
+    "sql": "SELECT patient_id, COUNT(*) AS visit_cnt FROM medical_encounters GROUP BY patient_id;"
+  },
+  {
+    "id": 199,
+    "problem": "列出看诊次数超过5次的患者ID和看诊次数，请输出对应SQL语句",
+    "sql": "SELECT patient_id, COUNT(*) AS visit_cnt FROM medical_encounters GROUP BY patient_id HAVING COUNT(*) > 5;"
+  },
+  {
+    "id": 200,
+    "problem": "算算每个科室的平均床位使用率，请输出对应SQL语句",
+    "sql": "SELECT name, (total_beds - available_beds) / total_beds AS avg_bed_usage_rate FROM departments_wards WHERE total_beds > 0;"
+  },
+  {
+    "id": 201,
+    "problem": "找出平均绩效评分最高的职位，请输出对应SQL语句",
+    "sql": "SELECT job_title FROM medical_staff GROUP BY job_title ORDER BY AVG(performance_score) DESC LIMIT 1;"
+  },
+  {
+    "id": 202,
+    "problem": "看看每个月新增多少患者，请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(create_time, '%Y-%m') AS reg_month, COUNT(*) AS patient_cnt FROM patient_master_index GROUP BY DATE_FORMAT(create_time, '%Y-%m') ORDER BY reg_month;"
+  },
+  {
+    "id": 203,
+    "problem": "算算哪种医嘱类型用得最多，请输出对应SQL语句",
+    "sql": "SELECT order_type, COUNT(*) AS order_cnt FROM medical_orders GROUP BY order_type ORDER BY order_cnt DESC LIMIT 1;"
+  },
+  {
+    "id": 204,
+    "problem": "看看哪个护士执行的医嘱数量最多，请输出对应SQL语句",
+    "sql": "SELECT executing_nurse_id, COUNT(*) AS order_cnt FROM medical_orders WHERE execution_status = '已执行' GROUP BY executing_nurse_id ORDER BY order_cnt DESC LIMIT 1;"
+  },
+  {
+    "id": 205,
+    "problem": "看看每年医保支付总额是多少，请输出对应SQL语句",
+    "sql": "SELECT YEAR(transaction_date) AS year, SUM(insurance_paid) AS total_insurance FROM billing_transactions GROUP BY YEAR(transaction_date) ORDER BY year;"
+  },
+  {
+    "id": 206,
+    "problem": "找出每个科室床位数最多的那个科室，请输出对应SQL语句",
+    "sql": "SELECT name, total_beds FROM departments_wards ORDER BY total_beds DESC LIMIT 1;"
+  },
+  {
+    "id": 207,
+    "problem": "查查同一科室里绩效前3的员工，请输出对应SQL语句",
+    "sql": "SELECT department_id, staff_id, staff_name, performance_score FROM (SELECT department_id, staff_id, staff_name, performance_score, ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY performance_score DESC) AS rn FROM medical_staff WHERE is_active = 1) t WHERE rn <= 3;"
+  },
+  {
+    "id": 208,
+    "problem": "找出患者中年龄最大和最小的，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name, age FROM (SELECT patient_id, patient_name, age, RANK() OVER (ORDER BY age DESC) AS rk_desc, RANK() OVER (ORDER BY age ASC) AS rk_asc FROM patient_master_index WHERE delete_flag = 'N') t WHERE rk_desc = 1 OR rk_asc = 1;"
+  },
+  {
+    "id": 209,
+    "problem": "统计医保余额大于平均值的患者，请输出对应SQL语句",
+    "sql": "SELECT patient_id, patient_name, insurance_balance FROM patient_master_index WHERE insurance_balance > (SELECT AVG(insurance_balance) FROM patient_master_index WHERE delete_flag = 'N') AND delete_flag = 'N';"
+  },
+  {
+    "id": 210,
+    "problem": "看看哪些医生的绩效高于科室平均绩效，请输出对应SQL语句",
+    "sql": "SELECT s.staff_id, s.staff_name, s.department_id, s.performance_score FROM medical_staff s WHERE s.is_active = 1 AND s.job_title LIKE '%医师%' AND s.performance_score > (SELECT AVG(performance_score) FROM medical_staff WHERE department_id = s.department_id AND is_active = 1);"
+  }
+]

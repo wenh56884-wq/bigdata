@@ -1,0 +1,957 @@
+[
+  {
+    "id": 1,
+    "problem": "找出所有在北京的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE address_json LIKE '%北京%' OR address_json LIKE '%北京市%';"
+  },
+  {
+    "id": 2,
+    "problem": "列出所有欠费的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE customer_status = '欠费';"
+  },
+  {
+    "id": 3,
+    "problem": "显示所有男性用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE gender = '男';"
+  },
+  {
+    "id": 4,
+    "problem": "找出所有5G套餐，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE product_type = '5G专享' OR product_name LIKE '%5G%';"
+  },
+  {
+    "id": 5,
+    "problem": "显示当前有效的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE is_current = 1 AND (expire_date IS NULL OR expire_date >= CURDATE());"
+  },
+  {
+    "id": 6,
+    "problem": "找出价格高于100元的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE base_fee > 100;"
+  },
+  {
+    "id": 7,
+    "problem": "列出所有语音通话记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE call_type IN ('本地语音', '长途语音');"
+  },
+  {
+    "id": 8,
+    "problem": "找出通话时长超过10分钟的记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE duration_seconds > 600;"
+  },
+  {
+    "id": 9,
+    "problem": "显示所有成功的通话记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE call_result = '成功';"
+  },
+  {
+    "id": 10,
+    "problem": "找出总金额超过500的账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE total_amount > 500;"
+  },
+  {
+    "id": 11,
+    "problem": "列出所有未支付的账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE payment_status IN ('待支付', '部分支付', '逾期') OR unpaid_amount > 0;"
+  },
+  {
+    "id": 12,
+    "problem": "显示2024年的所有账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE YEAR(billing_month) = 2024;"
+  },
+  {
+    "id": 13,
+    "problem": "找出所有在营业厅办理的订购，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE channel_code = '营业厅';"
+  },
+  {
+    "id": 14,
+    "problem": "列出所有预付费用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE payment_method = '预付费';"
+  },
+  {
+    "id": 15,
+    "problem": "显示所有2024年新装的订购，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE subscription_type = '新装' AND YEAR(start_date) = 2024;"
+  },
+  {
+    "id": 16,
+    "problem": "找出所有投诉记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records WHERE is_complaint = 1 OR service_type = '投诉';"
+  },
+  {
+    "id": 17,
+    "problem": "列出热线电话的服务记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records WHERE service_channel = '热线电话';"
+  },
+  {
+    "id": 18,
+    "problem": "显示满意度为5分的记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records WHERE satisfaction_score = 5;"
+  },
+  {
+    "id": 19,
+    "problem": "找出所有网络营销活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE channel IN ('APP推送', '社交媒体');"
+  },
+  {
+    "id": 20,
+    "problem": "列出已结束的营销活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE status = '已结束';"
+  },
+  {
+    "id": 21,
+    "problem": "显示预算超过10万的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE budget_amount > 100000;"
+  },
+  {
+    "id": 22,
+    "problem": "找出所有基站资源，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE resource_type = '基站';"
+  },
+  {
+    "id": 23,
+    "problem": "列出正常运行的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE maintenance_status = '正常';"
+  },
+  {
+    "id": 24,
+    "problem": "显示华为的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE vendor LIKE '%华为%';"
+  },
+  {
+    "id": 25,
+    "problem": "找出钻石VIP用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE vip_level = '钻石';"
+  },
+  {
+    "id": 26,
+    "problem": "列出企业用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE customer_type = '企业';"
+  },
+  {
+    "id": 27,
+    "problem": "显示信用等级为10的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE credit_level = 10;"
+  },
+  {
+    "id": 28,
+    "problem": "找出包含流量的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE data_allowance > 0;"
+  },
+  {
+    "id": 29,
+    "problem": "列出国际漫游产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE product_type = '国际漫游';"
+  },
+  {
+    "id": 30,
+    "problem": "显示审核通过的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE audit_status = '已生效';"
+  },
+  {
+    "id": 31,
+    "problem": "找出流量使用记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE call_type = '流量';"
+  },
+  {
+    "id": 32,
+    "problem": "列出国际漫游通话，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE call_type = '国际漫游' OR (roaming_flag = 1 AND call_type IN ('本地语音', '长途语音', '视频通话'));"
+  },
+  {
+    "id": 33,
+    "problem": "显示有错误的话单，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE error_code IS NOT NULL AND error_code <> '';"
+  },
+  {
+    "id": 34,
+    "problem": "找出有滞纳金的账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE late_fee > 0;"
+  },
+  {
+    "id": 35,
+    "problem": "列出部分支付的账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE payment_status = '部分支付';"
+  },
+  {
+    "id": 36,
+    "problem": "显示已审计的账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE audit_flag = 1;"
+  },
+  {
+    "id": 37,
+    "problem": "找出自动续约的订购，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE auto_renew = 1;"
+  },
+  {
+    "id": 38,
+    "problem": "列出合约期24个月的订购，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE contract_duration = 24;"
+  },
+  {
+    "id": 39,
+    "problem": "显示来自CRM系统的数据，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE data_source = 'CRM';"
+  },
+  {
+    "id": 40,
+    "problem": "找出情感分数为负的服务记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records WHERE sentiment_score < 0;"
+  },
+  {
+    "id": 41,
+    "problem": "列出紧急的服务请求，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records WHERE urgency_level = '紧急';"
+  },
+  {
+    "id": 42,
+    "problem": "显示需要跟进的记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records WHERE follow_up_required = 1;"
+  },
+  {
+    "id": 43,
+    "problem": "找出目标为高价值用户的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE target_segment = '高价值用户';"
+  },
+  {
+    "id": 44,
+    "problem": "列出转化率超过10%的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE conversion_rate > 0.1;"
+  },
+  {
+    "id": 45,
+    "problem": "显示审批中的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE status = '审批中';"
+  },
+  {
+    "id": 46,
+    "problem": "找出容量超过5000的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE capacity_voice > 5000 OR capacity_data_mbps > 5000;"
+  },
+  {
+    "id": 47,
+    "problem": "列出利用率超过80%的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE current_utilization > 80;"
+  },
+  {
+    "id": 48,
+    "problem": "显示中兴的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE vendor LIKE '%中兴%';"
+  },
+  {
+    "id": 49,
+    "problem": "找出注册超过3年的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE registration_date < DATE_SUB(CURDATE(), INTERVAL 3 YEAR);"
+  },
+  {
+    "id": 50,
+    "problem": "列出月均消费超过200的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE avg_monthly_spend > 200;"
+  },
+  {
+    "id": 51,
+    "problem": "显示最近90天充值的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE last_recharge_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY);"
+  },
+  {
+    "id": 52,
+    "problem": "找出已下架的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE audit_status = '已下架';"
+  },
+  {
+    "id": 53,
+    "problem": "列出包含500分钟语音的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE voice_allowance = 500;"
+  },
+  {
+    "id": 54,
+    "problem": "显示漫游区域为全球的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE roaming_zone = '全球';"
+  },
+  {
+    "id": 55,
+    "problem": "显示被叫忙的通话，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE call_result = '被叫忙';"
+  },
+  {
+    "id": 56,
+    "problem": "找出本月账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE DATE_FORMAT(billing_month, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m');"
+  },
+  {
+    "id": 57,
+    "problem": "列出欠费超过100的账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE unpaid_amount > 100;"
+  },
+  {
+    "id": 58,
+    "problem": "显示有增值业务的账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills WHERE value_added_fee > 0;"
+  },
+  {
+    "id": 59,
+    "problem": "找出已结束的订购，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE actual_end_date IS NOT NULL OR (end_date < CURDATE() AND actual_end_date IS NULL);"
+  },
+  {
+    "id": 60,
+    "problem": "列出月底出账的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE billing_cycle >= 28;"
+  },
+  {
+    "id": 61,
+    "problem": "显示有促销码的订购，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions WHERE promotion_codes IS NOT NULL AND JSON_LENGTH(promotion_codes) > 0;"
+  },
+  {
+    "id": 62,
+    "problem": "找出已解决的服务记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records WHERE resolution_status = '已解决';"
+  },
+  {
+    "id": 63,
+    "problem": "显示转接过的服务，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records WHERE transfer_count > 0;"
+  },
+  {
+    "id": 64,
+    "problem": "找出ROI大于2的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE roi > 2;"
+  },
+  {
+    "id": 65,
+    "problem": "列出参与人数超过5万的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE participants_count > 50000;"
+  },
+  {
+    "id": 66,
+    "problem": "显示节假日营销活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE campaign_type = '节假日营销';"
+  },
+  {
+    "id": 67,
+    "problem": "找出故障的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE maintenance_status = '故障';"
+  },
+  {
+    "id": 68,
+    "problem": "列出最近30天有故障的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE fault_count_30d > 0;"
+  },
+  {
+    "id": 69,
+    "problem": "显示安装超过2年的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE installation_date < DATE_SUB(CURDATE(), INTERVAL 2 YEAR);"
+  },
+  {
+    "id": 70,
+    "problem": "找出微信办理的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE preferred_channel = '线上';"
+  },
+  {
+    "id": 71,
+    "problem": "列出推荐关系链，请输出对应SQL语句",
+    "sql": "WITH RECURSIVE chain AS (SELECT customer_id, customer_name, referral_customer_id, 0 AS lvl FROM customers WHERE referral_customer_id IS NULL UNION ALL SELECT c.customer_id, c.customer_name, c.referral_customer_id, chain.lvl + 1 FROM customers c JOIN chain ON c.referral_customer_id = chain.customer_id) SELECT * FROM chain;"
+  },
+  {
+    "id": 72,
+    "problem": "显示信用等级前10的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers ORDER BY credit_level DESC LIMIT 10;"
+  },
+  {
+    "id": 73,
+    "problem": "找出流量单价低于0.03的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE over_data_fee < 0.03;"
+  },
+  {
+    "id": 74,
+    "problem": "列出有佣金的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE commission_rate > 0;"
+  },
+  {
+    "id": 75,
+    "problem": "找出凌晨的通话记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE HOUR(call_start_time) BETWEEN 0 AND 5;"
+  },
+  {
+    "id": 76,
+    "problem": "列出周末的流量使用，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE call_type = '流量' AND DAYOFWEEK(call_start_time) IN (1, 7);"
+  },
+  {
+    "id": 77,
+    "problem": "找出累计消费前20的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers ORDER BY total_spend DESC LIMIT 20;"
+  },
+  {
+    "id": 78,
+    "problem": "列出各VIP等级用户数，请输出对应SQL语句",
+    "sql": "SELECT vip_level, COUNT(*) AS user_cnt FROM customers GROUP BY vip_level;"
+  },
+  {
+    "id": 79,
+    "problem": "显示用户来源渠道分布，请输出对应SQL语句",
+    "sql": "SELECT preferred_channel, COUNT(*) AS user_cnt FROM customers GROUP BY preferred_channel;"
+  },
+  {
+    "id": 80,
+    "problem": "统计各类产品数量，请输出对应SQL语句",
+    "sql": "SELECT product_type, COUNT(*) AS product_cnt FROM products GROUP BY product_type;"
+  },
+  {
+    "id": 81,
+    "problem": "列出各价格区间产品数，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN base_fee < 30 THEN '30元以下' WHEN base_fee BETWEEN 30 AND 100 THEN '30-100元' WHEN base_fee BETWEEN 100 AND 300 THEN '100-300元' ELSE '300元以上' END AS price_range, COUNT(*) AS product_cnt FROM products GROUP BY price_range;"
+  },
+  {
+    "id": 82,
+    "problem": "显示各审核状态产品数，请输出对应SQL语句",
+    "sql": "SELECT audit_status, COUNT(*) AS product_cnt FROM products GROUP BY audit_status;"
+  },
+  {
+    "id": 83,
+    "problem": "统计各类通话数量，请输出对应SQL语句",
+    "sql": "SELECT call_type, COUNT(*) AS call_cnt FROM cdr_detail GROUP BY call_type;"
+  },
+  {
+    "id": 84,
+    "problem": "列出各通话结果数量，请输出对应SQL语句",
+    "sql": "SELECT call_result, COUNT(*) AS call_cnt FROM cdr_detail GROUP BY call_result;"
+  },
+  {
+    "id": 85,
+    "problem": "显示各时段通话量，请输出对应SQL语句",
+    "sql": "SELECT HOUR(call_start_time) AS hour, COUNT(*) AS call_cnt FROM cdr_detail GROUP BY HOUR(call_start_time) ORDER BY hour;"
+  },
+  {
+    "id": 86,
+    "problem": "统计各支付状态账单数，请输出对应SQL语句",
+    "sql": "SELECT payment_status, COUNT(*) AS bill_cnt FROM monthly_bills GROUP BY payment_status;"
+  },
+  {
+    "id": 87,
+    "problem": "列出各月账单数量，请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(billing_month, '%Y-%m') AS bill_month, COUNT(*) AS bill_cnt FROM monthly_bills GROUP BY DATE_FORMAT(billing_month, '%Y-%m') ORDER BY bill_month;"
+  },
+  {
+    "id": 88,
+    "problem": "显示平均账单金额，请输出对应SQL语句",
+    "sql": "SELECT AVG(total_amount) AS avg_amount FROM monthly_bills;"
+  },
+  {
+    "id": 89,
+    "problem": "统计各类订购数量，请输出对应SQL语句",
+    "sql": "SELECT subscription_type, COUNT(*) AS sub_cnt FROM subscriptions GROUP BY subscription_type;"
+  },
+  {
+    "id": 90,
+    "problem": "列出各渠道订购数，请输出对应SQL语句",
+    "sql": "SELECT channel_code, COUNT(*) AS sub_cnt FROM subscriptions GROUP BY channel_code;"
+  },
+  {
+    "id": 91,
+    "problem": "显示平均合约期，请输出对应SQL语句",
+    "sql": "SELECT AVG(contract_duration) AS avg_contract_duration FROM subscriptions;"
+  },
+  {
+    "id": 92,
+    "problem": "统计各类服务数量，请输出对应SQL语句",
+    "sql": "SELECT service_type, COUNT(*) AS svc_cnt FROM service_records GROUP BY service_type;"
+  },
+  {
+    "id": 93,
+    "problem": "列出各渠道服务数，请输出对应SQL语句",
+    "sql": "SELECT service_channel, COUNT(*) AS svc_cnt FROM service_records GROUP BY service_channel;"
+  },
+  {
+    "id": 94,
+    "problem": "显示平均满意度，请输出对应SQL语句",
+    "sql": "SELECT AVG(satisfaction_score) AS avg_satisfaction FROM service_records WHERE satisfaction_score IS NOT NULL;"
+  },
+  {
+    "id": 95,
+    "problem": "统计各类活动数量，请输出对应SQL语句",
+    "sql": "SELECT campaign_type, COUNT(*) AS camp_cnt FROM marketing_campaigns GROUP BY campaign_type;"
+  },
+  {
+    "id": 96,
+    "problem": "列出各渠道活动数，请输出对应SQL语句",
+    "sql": "SELECT channel, COUNT(*) AS camp_cnt FROM marketing_campaigns GROUP BY channel;"
+  },
+  {
+    "id": 97,
+    "problem": "显示平均参与人数，请输出对应SQL语句",
+    "sql": "SELECT AVG(participants_count) AS avg_participants FROM marketing_campaigns;"
+  },
+  {
+    "id": 98,
+    "problem": "统计各类设备数量，请输出对应SQL语句",
+    "sql": "SELECT resource_type, COUNT(*) AS res_cnt FROM network_resources GROUP BY resource_type;"
+  },
+  {
+    "id": 99,
+    "problem": "列出各厂商设备数，请输出对应SQL语句",
+    "sql": "SELECT vendor, COUNT(*) AS res_cnt FROM network_resources GROUP BY vendor;"
+  },
+  {
+    "id": 100,
+    "problem": "显示平均利用率，请输出对应SQL语句",
+    "sql": "SELECT AVG(current_utilization) AS avg_utilization FROM network_resources;"
+  },
+  {
+    "id": 101,
+    "problem": "找出消费最高的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers ORDER BY total_spend DESC LIMIT 1;"
+  },
+  {
+    "id": 102,
+    "problem": "列出最贵的套餐，请输出对应SQL语句",
+    "sql": "SELECT * FROM products WHERE is_current = 1 ORDER BY base_fee DESC LIMIT 1;"
+  },
+  {
+    "id": 103,
+    "problem": "显示最长的通话，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail ORDER BY duration_seconds DESC LIMIT 1;"
+  },
+  {
+    "id": 104,
+    "problem": "找出最大的账单，请输出对应SQL语句",
+    "sql": "SELECT * FROM monthly_bills ORDER BY total_amount DESC LIMIT 1;"
+  },
+  {
+    "id": 105,
+    "problem": "列出最新的订购，请输出对应SQL语句",
+    "sql": "SELECT * FROM subscriptions ORDER BY create_time DESC LIMIT 1;"
+  },
+  {
+    "id": 106,
+    "problem": "显示最新的服务记录，请输出对应SQL语句",
+    "sql": "SELECT * FROM service_records ORDER BY contact_time DESC LIMIT 1;"
+  },
+  {
+    "id": 107,
+    "problem": "找出最新的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns ORDER BY start_date DESC LIMIT 1;"
+  },
+  {
+    "id": 108,
+    "problem": "列出最新的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources ORDER BY installation_date DESC LIMIT 1;"
+  },
+  {
+    "id": 109,
+    "problem": "显示各状态用户数量，请输出对应SQL语句",
+    "sql": "SELECT customer_status, COUNT(*) AS user_cnt FROM customers GROUP BY customer_status;"
+  },
+  {
+    "id": 110,
+    "problem": "统计男女用户比例，请输出对应SQL语句",
+    "sql": "SELECT SUM(CASE WHEN gender = '男' THEN 1 ELSE 0 END) AS male_cnt, SUM(CASE WHEN gender = '女' THEN 1 ELSE 0 END) AS female_cnt FROM customers;"
+  },
+  {
+    "id": 111,
+    "problem": "列出各类型用户数，请输出对应SQL语句",
+    "sql": "SELECT customer_type, COUNT(*) AS user_cnt FROM customers GROUP BY customer_type;"
+  },
+  {
+    "id": 112,
+    "problem": "显示用户年龄分布，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) < 18 THEN '18岁以下' WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 18 AND 30 THEN '18-30岁' WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 31 AND 50 THEN '31-50岁' WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 51 AND 60 THEN '51-60岁' ELSE '60岁以上' END AS age_group, COUNT(*) AS user_cnt FROM customers WHERE birth_date IS NOT NULL GROUP BY age_group;"
+  },
+  {
+    "id": 113,
+    "problem": "统计各子类产品数，请输出对应SQL语句",
+    "sql": "SELECT product_subtype, COUNT(*) AS product_cnt FROM products GROUP BY product_subtype;"
+  },
+  {
+    "id": 114,
+    "problem": "列出各漫游区产品数，请输出对应SQL语句",
+    "sql": "SELECT roaming_zone, COUNT(*) AS product_cnt FROM products GROUP BY roaming_zone;"
+  },
+  {
+    "id": 115,
+    "problem": "显示各话单来源数量，请输出对应SQL语句",
+    "sql": "SELECT cdr_source, COUNT(*) AS cdr_cnt FROM cdr_detail GROUP BY cdr_source;"
+  },
+  {
+    "id": 116,
+    "problem": "统计各归属地话单数，请输出对应SQL语句",
+    "sql": "SELECT home_location, COUNT(*) AS cdr_cnt FROM cdr_detail GROUP BY home_location;"
+  },
+  {
+    "id": 117,
+    "problem": "列出各账单版本数量，请输出对应SQL语句",
+    "sql": "SELECT version, COUNT(*) AS bill_cnt FROM monthly_bills GROUP BY version;"
+  },
+  {
+    "id": 118,
+    "problem": "显示各月份账单总额，请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(billing_month, '%Y-%m') AS bill_month, SUM(total_amount) AS total_amount FROM monthly_bills GROUP BY DATE_FORMAT(billing_month, '%Y-%m') ORDER BY bill_month;"
+  },
+  {
+    "id": 119,
+    "problem": "统计各付费方式订购数，请输出对应SQL语句",
+    "sql": "SELECT payment_method, COUNT(*) AS sub_cnt FROM subscriptions GROUP BY payment_method;"
+  },
+  {
+    "id": 120,
+    "problem": "列出各数据来源订购数，请输出对应SQL语句",
+    "sql": "SELECT data_source, COUNT(*) AS sub_cnt FROM subscriptions GROUP BY data_source;"
+  },
+  {
+    "id": 121,
+    "problem": "显示各原因分类服务数，请输出对应SQL语句",
+    "sql": "SELECT first_level_reason, COUNT(*) AS svc_cnt FROM service_records GROUP BY first_level_reason ORDER BY svc_cnt DESC;"
+  },
+  {
+    "id": 122,
+    "problem": "统计各紧急程度服务数，请输出对应SQL语句",
+    "sql": "SELECT urgency_level, COUNT(*) AS svc_cnt FROM service_records GROUP BY urgency_level;"
+  },
+  {
+    "id": 123,
+    "problem": "列出各目标客群活动数，请输出对应SQL语句",
+    "sql": "SELECT target_segment, COUNT(*) AS camp_cnt FROM marketing_campaigns GROUP BY target_segment;"
+  },
+  {
+    "id": 124,
+    "problem": "显示各状态活动数，请输出对应SQL语句",
+    "sql": "SELECT status, COUNT(*) AS camp_cnt FROM marketing_campaigns GROUP BY status;"
+  },
+  {
+    "id": 125,
+    "problem": "统计各区域设备数，请输出对应SQL语句",
+    "sql": "SELECT administrative_region, COUNT(*) AS res_cnt FROM network_resources GROUP BY administrative_region;"
+  },
+  {
+    "id": 126,
+    "problem": "列出各状态设备数，请输出对应SQL语句",
+    "sql": "SELECT maintenance_status, COUNT(*) AS res_cnt FROM network_resources GROUP BY maintenance_status;"
+  },
+  {
+    "id": 127,
+    "problem": "显示总用户数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS total_user_cnt FROM customers;"
+  },
+  {
+    "id": 128,
+    "problem": "统计活跃用户数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS active_user_cnt FROM customers WHERE customer_status = '正常' AND (cancel_date IS NULL OR cancel_date > CURDATE());"
+  },
+  {
+    "id": 129,
+    "problem": "列出销户用户数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS cancelled_user_cnt FROM customers WHERE customer_status = '已销户';"
+  },
+  {
+    "id": 130,
+    "problem": "显示产品总数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS product_total_cnt FROM products;"
+  },
+  {
+    "id": 131,
+    "problem": "统计当前产品数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS current_product_cnt FROM products WHERE is_current = 1;"
+  },
+  {
+    "id": 132,
+    "problem": "列出话单总数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS cdr_total_cnt FROM cdr_detail;"
+  },
+  {
+    "id": 133,
+    "problem": "统计流量记录数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS data_cdr_cnt FROM cdr_detail WHERE call_type = '流量';"
+  },
+  {
+    "id": 134,
+    "problem": "显示账单总数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS bill_total_cnt FROM monthly_bills;"
+  },
+  {
+    "id": 135,
+    "problem": "统计已支付账单数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS paid_bill_cnt FROM monthly_bills WHERE payment_status = '已支付';"
+  },
+  {
+    "id": 136,
+    "problem": "列出订购总数，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS sub_total_cnt FROM subscriptions;"
+  },
+  {
+    "id": 137,
+    "problem": "找出年龄在25-35之间的用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE birth_date IS NOT NULL AND TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 25 AND 35;"
+  },
+  {
+    "id": 138,
+    "problem": "列出最近3个月有活动的用户，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT c.customer_id, c.customer_name FROM customers c JOIN subscriptions s ON c.customer_id = s.customer_id WHERE s.start_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH);"
+  },
+  {
+    "id": 139,
+    "problem": "显示每个用户的订购数量，请输出对应SQL语句",
+    "sql": "SELECT customer_id, COUNT(*) AS sub_cnt FROM subscriptions GROUP BY customer_id;"
+  },
+  {
+    "id": 140,
+    "problem": "找出套餐变更过的用户，请输出对应SQL语句",
+    "sql": "SELECT DISTINCT customer_id FROM subscriptions WHERE subscription_type IN ('升级', '降级') UNION SELECT customer_id FROM subscriptions GROUP BY customer_id, product_id HAVING COUNT(*) > 1;"
+  },
+  {
+    "id": 141,
+    "problem": "列出通话最频繁的前10个号码，请输出对应SQL语句",
+    "sql": "SELECT msisdn, COUNT(*) AS call_cnt FROM cdr_detail WHERE call_type IN ('本地语音', '长途语音', '视频通话') GROUP BY msisdn ORDER BY call_cnt DESC LIMIT 10;"
+  },
+  {
+    "id": 142,
+    "problem": "显示每个号码的平均通话时长，请输出对应SQL语句",
+    "sql": "SELECT msisdn, AVG(duration_seconds) AS avg_duration FROM cdr_detail WHERE call_type IN ('本地语音', '长途语音', '视频通话') AND duration_seconds > 0 GROUP BY msisdn;"
+  },
+  {
+    "id": 143,
+    "problem": "列出每个用户的月均账单，请输出对应SQL语句",
+    "sql": "SELECT customer_id, msisdn, AVG(total_amount) AS avg_bill_amount FROM monthly_bills GROUP BY customer_id, msisdn;"
+  },
+  {
+    "id": 144,
+    "problem": "显示连续欠费2个月以上的用户，请输出对应SQL语句",
+    "sql": "SELECT customer_id FROM (SELECT customer_id, billing_month, LAG(billing_month) OVER (PARTITION BY customer_id ORDER BY billing_month) AS prev_month FROM monthly_bills WHERE unpaid_amount > 0 AND payment_status IN ('待支付', '部分支付', '逾期')) t WHERE prev_month IS NOT NULL AND DATE_ADD(prev_month, INTERVAL 1 MONTH) = billing_month GROUP BY customer_id;"
+  },
+  {
+    "id": 145,
+    "problem": "找出账单金额波动大的用户，请输出对应SQL语句",
+    "sql": "SELECT customer_id, STDDEV(total_amount) AS bill_volatility FROM monthly_bills GROUP BY customer_id ORDER BY bill_volatility DESC LIMIT 10;"
+  },
+  {
+    "id": 146,
+    "problem": "列出每个客服的服务记录数，请输出对应SQL语句",
+    "sql": "SELECT agent_id, agent_name, COUNT(*) AS svc_cnt FROM service_records GROUP BY agent_id, agent_name;"
+  },
+  {
+    "id": 147,
+    "problem": "显示平均处理时间最短的客服，请输出对应SQL语句",
+    "sql": "SELECT agent_id, agent_name, AVG(duration_seconds) AS avg_duration FROM service_records GROUP BY agent_id, agent_name ORDER BY avg_duration ASC LIMIT 1;"
+  },
+  {
+    "id": 148,
+    "problem": "找出投诉率高的客服，请输出对应SQL语句",
+    "sql": "SELECT agent_id, agent_name, SUM(is_complaint) / COUNT(*) AS complaint_rate FROM service_records GROUP BY agent_id, agent_name ORDER BY complaint_rate DESC;"
+  },
+  {
+    "id": 149,
+    "problem": "列出ROI最高的5个活动，请输出对应SQL语句",
+    "sql": "SELECT campaign_id, campaign_name, roi FROM marketing_campaigns ORDER BY roi DESC LIMIT 5;"
+  },
+  {
+    "id": 150,
+    "problem": "显示超出预算的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns WHERE actual_cost > budget_amount;"
+  },
+  {
+    "id": 151,
+    "problem": "找出执行时间最长的活动，请输出对应SQL语句",
+    "sql": "SELECT * FROM marketing_campaigns ORDER BY DATEDIFF(COALESCE(end_date, extend_date), start_date) DESC LIMIT 1;"
+  },
+  {
+    "id": 152,
+    "problem": "列出故障率最高的设备类型，请输出对应SQL语句",
+    "sql": "SELECT resource_type, SUM(fault_count_30d) / COUNT(*) AS fault_rate FROM network_resources GROUP BY resource_type ORDER BY fault_rate DESC LIMIT 1;"
+  },
+  {
+    "id": 153,
+    "problem": "显示维护成本最高的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources ORDER BY maintenance_cost DESC LIMIT 1;"
+  },
+  {
+    "id": 154,
+    "problem": "找出性能最差的基站，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE resource_type = '基站' ORDER BY current_utilization DESC, avg_signal_strength ASC LIMIT 1;"
+  },
+  {
+    "id": 155,
+    "problem": "列出每个地区的网络设备数量，请输出对应SQL语句",
+    "sql": "SELECT administrative_region, COUNT(*) AS res_cnt FROM network_resources GROUP BY administrative_region;"
+  },
+  {
+    "id": 156,
+    "problem": "显示有父子关系的设备，请输出对应SQL语句",
+    "sql": "SELECT * FROM network_resources WHERE parent_resource_id IS NOT NULL;"
+  },
+  {
+    "id": 157,
+    "problem": "列出每个产品的平均折扣，请输出对应SQL语句",
+    "sql": "SELECT product_id, AVG(discount_rate) AS avg_discount FROM subscriptions GROUP BY product_id;"
+  },
+  {
+    "id": 158,
+    "problem": "显示产品的订购热度，请输出对应SQL语句",
+    "sql": "SELECT product_id, COUNT(*) AS sub_cnt FROM subscriptions GROUP BY product_id ORDER BY sub_cnt DESC;"
+  },
+  {
+    "id": 159,
+    "problem": "找出最受欢迎的数据套餐，请输出对应SQL语句",
+    "sql": "SELECT pr.product_id, pr.product_name, COUNT(s.subscription_id) AS sub_cnt FROM products pr JOIN subscriptions s ON pr.product_id = s.product_id AND pr.version = s.product_version WHERE pr.data_allowance > 0 GROUP BY pr.product_id, pr.product_name ORDER BY sub_cnt DESC LIMIT 1;"
+  },
+  {
+    "id": 160,
+    "problem": "列出每月的新增用户，请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(registration_date, '%Y-%m') AS reg_month, COUNT(*) AS user_cnt FROM customers GROUP BY DATE_FORMAT(registration_date, '%Y-%m') ORDER BY reg_month;"
+  },
+  {
+    "id": 161,
+    "problem": "显示用户流失趋势，请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(cancel_date, '%Y-%m') AS cancel_month, COUNT(*) AS user_cnt FROM customers WHERE customer_status = '已销户' GROUP BY DATE_FORMAT(cancel_date, '%Y-%m') ORDER BY cancel_month;"
+  },
+  {
+    "id": 162,
+    "problem": "找出用户生命周期分布，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN loyalty_months < 6 THEN '6个月内' WHEN loyalty_months BETWEEN 6 AND 12 THEN '6-12个月' WHEN loyalty_months BETWEEN 13 AND 24 THEN '13-24个月' WHEN loyalty_months BETWEEN 25 AND 36 THEN '25-36个月' ELSE '36个月以上' END AS life_cycle, COUNT(*) AS user_cnt FROM customers GROUP BY life_cycle;"
+  },
+  {
+    "id": 163,
+    "problem": "列出各时段话务量高峰，请输出对应SQL语句",
+    "sql": "SELECT HOUR(call_start_time) AS hour, COUNT(*) AS call_cnt FROM cdr_detail WHERE call_type IN ('本地语音', '长途语音', '视频通话') GROUP BY HOUR(call_start_time) ORDER BY call_cnt DESC LIMIT 3;"
+  },
+  {
+    "id": 164,
+    "problem": "显示周末和工作日的话务量对比，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN DAYOFWEEK(call_start_time) IN (1, 7) THEN '周末' ELSE '工作日' END AS day_type, COUNT(*) AS call_cnt FROM cdr_detail WHERE call_type IN ('本地语音', '长途语音', '视频通话') GROUP BY day_type;"
+  },
+  {
+    "id": 165,
+    "problem": "找出各季度的账单收入，请输出对应SQL语句",
+    "sql": "SELECT YEAR(billing_month) AS year, QUARTER(billing_month) AS q, SUM(total_amount) AS total_income FROM monthly_bills GROUP BY YEAR(billing_month), QUARTER(billing_month) ORDER BY year, q;"
+  },
+  {
+    "id": 166,
+    "problem": "列出每月坏账金额，请输出对应SQL语句",
+    "sql": "SELECT DATE_FORMAT(billing_month, '%Y-%m') AS bill_month, SUM(unpaid_amount) AS bad_debt_amount FROM monthly_bills WHERE payment_status = '坏账' GROUP BY DATE_FORMAT(billing_month, '%Y-%m') ORDER BY bill_month;"
+  },
+  {
+    "id": 167,
+    "problem": "显示各渠道的转化率对比，请输出对应SQL语句",
+    "sql": "SELECT channel, AVG(conversion_rate) AS avg_conversion_rate FROM marketing_campaigns GROUP BY channel;"
+  },
+  {
+    "id": 168,
+    "problem": "找出各类型活动的平均参与人数，请输出对应SQL语句",
+    "sql": "SELECT campaign_type, AVG(participants_count) AS avg_participants FROM marketing_campaigns GROUP BY campaign_type;"
+  },
+  {
+    "id": 169,
+    "problem": "列出各厂商设备的平均故障率，请输出对应SQL语句",
+    "sql": "SELECT vendor, SUM(fault_count_30d) / COUNT(*) AS fault_rate FROM network_resources GROUP BY vendor;"
+  },
+  {
+    "id": 170,
+    "problem": "显示设备安装时间分布，请输出对应SQL语句",
+    "sql": "SELECT YEAR(installation_date) AS install_year, COUNT(*) AS res_cnt FROM network_resources GROUP BY YEAR(installation_date) ORDER BY install_year;"
+  },
+  {
+    "id": 171,
+    "problem": "找出推荐关系最广的用户，请输出对应SQL语句",
+    "sql": "SELECT referral_customer_id, COUNT(*) AS referred_cnt FROM customers WHERE referral_customer_id IS NOT NULL GROUP BY referral_customer_id ORDER BY referred_cnt DESC LIMIT 1;"
+  },
+  {
+    "id": 172,
+    "problem": "列出被推荐用户的平均消费，请输出对应SQL语句",
+    "sql": "SELECT AVG(total_spend) AS avg_spend FROM customers WHERE referral_customer_id IS NOT NULL;"
+  },
+  {
+    "id": 173,
+    "problem": "显示产品价格的分布情况，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN base_fee < 50 THEN '50元以下' WHEN base_fee BETWEEN 50 AND 100 THEN '50-100元' WHEN base_fee BETWEEN 100 AND 200 THEN '100-200元' ELSE '200元以上' END AS price_range, COUNT(*) AS product_cnt FROM products GROUP BY price_range;"
+  },
+  {
+    "id": 174,
+    "problem": "找出数据量最大的产品，请输出对应SQL语句",
+    "sql": "SELECT * FROM products ORDER BY data_allowance DESC LIMIT 1;"
+  },
+  {
+    "id": 175,
+    "problem": "找出消费增长最快的用户，请输出对应SQL语句",
+    "sql": "SELECT customer_id, customer_name, avg_monthly_spend FROM customers WHERE customer_status = '正常' ORDER BY avg_monthly_spend DESC LIMIT 10;"
+  },
+  {
+    "id": 176,
+    "problem": "找出潜在流失用户，请输出对应SQL语句",
+    "sql": "SELECT * FROM customers WHERE customer_status = '正常' AND cancel_date IS NULL AND (last_recharge_date IS NULL OR last_recharge_date < DATE_SUB(CURDATE(), INTERVAL 90 DAY));"
+  },
+  {
+    "id": 177,
+    "problem": "列出用户价值分层，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN total_spend < 1000 THEN '低价值' WHEN total_spend BETWEEN 1000 AND 10000 THEN '中价值' WHEN total_spend BETWEEN 10000 AND 50000 THEN '高价值' ELSE '超高价值' END AS value_tier, COUNT(*) AS user_cnt FROM customers GROUP BY value_tier;"
+  },
+  {
+    "id": 178,
+    "problem": "显示用户的交叉购买倾向，请输出对应SQL语句",
+    "sql": "SELECT c.customer_id, c.customer_name FROM customers c JOIN subscriptions s ON c.customer_id = s.customer_id JOIN products p ON s.product_id = p.product_id AND s.product_version = p.version GROUP BY c.customer_id, c.customer_name HAVING COUNT(DISTINCT p.product_type) >= 2;"
+  },
+  {
+    "id": 179,
+    "problem": "找出异常流量使用模式，请输出对应SQL语句",
+    "sql": "SELECT * FROM cdr_detail WHERE data_volume_mb < 0 OR data_volume_mb > 50000;"
+  },
+  {
+    "id": 180,
+    "problem": "显示用户的通话行为聚类，请输出对应SQL语句",
+    "sql": "SELECT msisdn, COUNT(*) AS call_cnt, AVG(duration_seconds) AS avg_duration, CASE WHEN COUNT(*) >= 50 THEN '高频' WHEN COUNT(*) BETWEEN 20 AND 49 THEN '中频' ELSE '低频' END AS call_cluster FROM cdr_detail WHERE call_type IN ('本地语音', '长途语音', '视频通话') GROUP BY msisdn;"
+  },
+  {
+    "id": 181,
+    "problem": "列出用户的资费敏感度，请输出对应SQL语句",
+    "sql": "SELECT c.customer_type, AVG(s.discount_rate) AS avg_discount_rate FROM subscriptions s JOIN customers c ON s.customer_id = c.customer_id WHERE s.discount_rate > 0 GROUP BY c.customer_type;"
+  },
+  {
+    "id": 182,
+    "problem": "显示渠道效率分析，请输出对应SQL语句",
+    "sql": "SELECT channel, COUNT(*) AS camp_cnt, AVG(conversion_rate) AS avg_conversion_rate, SUM(actual_cost) AS total_cost FROM marketing_campaigns GROUP BY channel;"
+  },
+  {
+    "id": 183,
+    "problem": "找出服务瓶颈，请输出对应SQL语句",
+    "sql": "SELECT first_level_reason, AVG(duration_seconds) AS avg_duration, AVG(transfer_count) AS avg_transfer FROM service_records WHERE resolution_status IN ('待处理', '处理中', '升级处理') GROUP BY first_level_reason ORDER BY avg_duration DESC;"
+  },
+  {
+    "id": 184,
+    "problem": "显示问题集中度分析，请输出对应SQL语句",
+    "sql": "SELECT first_level_reason, COUNT(*) AS svc_cnt, COUNT(*) * 100.0 / SUM(COUNT(*)) OVER () AS pct FROM service_records GROUP BY first_level_reason ORDER BY svc_cnt DESC;"
+  },
+  {
+    "id": 185,
+    "problem": "找出客服技能匹配度，请输出对应SQL语句",
+    "sql": "SELECT skill_group, AVG(satisfaction_score) AS avg_satisfaction, AVG(transfer_count) AS avg_transfer, COUNT(*) AS svc_cnt FROM service_records GROUP BY skill_group;"
+  },
+  {
+    "id": 186,
+    "problem": "列出营销活动的边际效应，请输出对应SQL语句",
+    "sql": "SELECT campaign_id, campaign_name, conversion_count, actual_cost, conversion_count / actual_cost AS marginal_efficiency FROM marketing_campaigns WHERE actual_cost > 0 ORDER BY marginal_efficiency DESC;"
+  },
+  {
+    "id": 187,
+    "problem": "显示活动时间优化分析，请输出对应SQL语句",
+    "sql": "SELECT DAYOFWEEK(start_date) AS start_weekday, AVG(conversion_rate) AS avg_conversion_rate FROM marketing_campaigns GROUP BY DAYOFWEEK(start_date) ORDER BY start_weekday;"
+  },
+  {
+    "id": 188,
+    "problem": "显示设备老化分析，请输出对应SQL语句",
+    "sql": "SELECT CASE WHEN TIMESTAMPDIFF(YEAR, installation_date, CURDATE()) < 3 THEN '3年内' WHEN TIMESTAMPDIFF(YEAR, installation_date, CURDATE()) BETWEEN 3 AND 5 THEN '3-5年' WHEN TIMESTAMPDIFF(YEAR, installation_date, CURDATE()) BETWEEN 6 AND 8 THEN '6-8年' ELSE '8年以上' END AS age_tier, COUNT(*) AS res_cnt, AVG(fault_count_30d) AS avg_fault_cnt FROM network_resources GROUP BY age_tier;"
+  },
+  {
+    "id": 189,
+    "problem": "找出投资回报率低的设备，请输出对应SQL语句",
+    "sql": "SELECT resource_id, resource_name, current_utilization, maintenance_cost FROM network_resources WHERE maintenance_status <> '退役' AND maintenance_cost > 0 ORDER BY current_utilization / maintenance_cost ASC LIMIT 10;"
+  },
+  {
+    "id": 190,
+    "problem": "列出网络拓扑中的关键节点，请输出对应SQL语句",
+    "sql": "SELECT r.resource_id, r.resource_name, r.current_utilization FROM network_resources r WHERE r.current_utilization >= 90 OR r.resource_id IN (SELECT parent_resource_id FROM network_resources WHERE parent_resource_id IS NOT NULL GROUP BY parent_resource_id HAVING COUNT(*) > 5);"
+  },
+  {
+    "id": 191,
+    "problem": "显示系统整体健康度，请输出对应SQL语句",
+    "sql": "SELECT COUNT(*) AS total_res_cnt, SUM(maintenance_status = '故障') AS fault_cnt, AVG(current_utilization) AS avg_utilization, AVG(mttr_hours) AS avg_mttr, AVG(fault_count_30d) AS avg_fault_cnt_30d FROM network_resources;"
+  }
+]
