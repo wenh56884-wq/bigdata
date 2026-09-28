@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from core.agent import ChatService, db_skill_cards, delete_memory, list_memories, search_memories
+from services import hitl, debugging
 
 app = Flask(__name__)
 # 上传大小上限（要略大于单文件上限，留给 multipart 的开销）
@@ -128,6 +129,24 @@ def memory_delete(key):
     return jsonify({"deleted": key})
 
 
+@app.post("/api/approvals/<approval_id>")
+def approval_decide(approval_id):
+    """批准、拒绝或编辑一条正在等待的 Agent 高风险操作。"""
+    payload = _json_payload()
+    try:
+        result = hitl.manager.resolve(
+            approval_id,
+            payload.get("decision") or "",
+            payload.get("message") or "",
+            payload.get("args"),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if result is None:
+        return jsonify({"error": "审批不存在、已处理或已超时。"}), 404
+    return jsonify({"approval": result})
+
+
 # -------------------- 管理员上传：统一目录 + 落盘即解析 -------------------- #
 @app.get("/api/uploads")
 def upload_list():
@@ -140,7 +159,7 @@ def upload_list():
             "memory": table_memory.summary(),
         })
     except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify(debugging.error_payload(exc, context="upload_list")), 500
 
 
 @app.post("/api/uploads")
@@ -168,7 +187,7 @@ def upload_create():
                 failed.append({"name": item.filename, "error": str(exc)})
         return jsonify({"saved": saved, "failed": failed}), 201
     except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify(debugging.error_payload(exc, context="upload_create")), 500
 
 
 @app.get("/api/uploads/<path:name>/preview")
@@ -180,7 +199,7 @@ def upload_preview(name):
     except FileNotFoundError:
         return jsonify({"error": "文件不存在。"}), 404
     except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify(debugging.error_payload(exc, context="upload_preview")), 500
 
 
 @app.get("/api/uploads/<path:name>/content")
@@ -195,7 +214,7 @@ def upload_image_content(name):
         response.headers["Cache-Control"] = "private, no-store"
         return response
     except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify(debugging.error_payload(exc, context="upload_content")), 500
 
 
 @app.delete("/api/uploads/<path:name>")
@@ -212,7 +231,7 @@ def upload_delete(name):
             return jsonify({"error": "文件不存在。"}), 404
         return jsonify({"deleted": name})
     except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify(debugging.error_payload(exc, context="upload_delete")), 500
 
 
 @app.get("/api/uploads/memory")
@@ -222,7 +241,7 @@ def upload_memory():
         from services import table_memory
         return jsonify(table_memory.summary())
     except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify(debugging.error_payload(exc, context="upload_memory")), 500
 
 
 @app.delete("/api/uploads/memory")
@@ -247,8 +266,9 @@ def chat():
         {"type": "plan_step", "step": {...}}       计划某一步的状态变化（进度条）
         {"type": "token", "content": "字增量"}     前端逐字拼成完整回答
         {"type": "tool",  "name": "calculator"}    模型开始调用某工具
+        {"type": "approval_required", ...}            高风险工具暂停，等待人工批准/拒绝
         {"type": "done",  "thread_id", "answer", "plan"}        本轮结束
-        {"type": "error", "message": "..."}        中途出错（本回合不入历史）
+        {"type": "error", "message": "...", "error_id": "..."}  中途出错（本回合不入历史）
 
     前端对不认识的事件类型直接忽略即可，老版本页面不会因为多出 plan 事件而报错。
     """
@@ -264,7 +284,7 @@ def chat():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return jsonify(debugging.error_payload(exc, context="chat")), 500
 
     def generate():
         for event in events:
@@ -300,7 +320,7 @@ def deep_search():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return jsonify(debugging.error_payload(exc, context="deep")), 500
 
     def generate():
         for event in events:
@@ -345,8 +365,9 @@ def _too_large(_e):
 
 @app.errorhandler(500)
 def _server_error(_e):
-    hit = _json_error(500, "服务内部错误，详情见 web.py 的控制台输出。")
-    return hit if hit is not None else _e
+    if request.path.startswith("/api/"):
+        return jsonify(debugging.error_payload(_e, context="flask_500")), 500
+    return _e
 
 
 if __name__ == "__main__":

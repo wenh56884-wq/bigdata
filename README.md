@@ -88,6 +88,23 @@ REQUEST_TIMEOUT=60   # 单次请求超时（秒），超时直接报错，避免
 MAX_RETRIES=1        # 失败重试次数
 ```
 
+### LangChain 错误处理与调试
+
+项目已统一处理 Agent、工具、流式问答和 Flask API 错误：每次异常会生成 `error_id` 并写入
+脱敏日志；生产环境默认只向用户返回友好的失败提示，不泄露堆栈、密钥或本地路径。开发排障
+时可开启 LangChain 调试：
+
+```env
+DEBUG_MODE=1
+LOG_LEVEL=DEBUG
+LOG_FILE=logs/agent.log       # 可选；不设置则输出到控制台
+```
+
+`DEBUG_MODE=1` 会让 `create_agent(debug=True)`、流式 `error` 事件和 API 错误响应附带安全的
+`detail`；修复后请关闭，生产建议保持 `DEBUG_MODE=0`。`GET /api/health` 的 `debugging`
+字段显示当前级别、日志位置和是否向响应返回堆栈详情。前端遇到错误时可把 `error_id` 提供给
+管理员，用它在日志中定位完整上下文。
+
 > ⚠️ **安全**：`.env` 已在 `.gitignore` 中，**务必不要**把它提交到版本控制。
 > 密钥一旦泄露（比如贴到聊天记录里），请立刻去服务商后台吊销并重新生成。
 
@@ -108,6 +125,25 @@ LANGSMITH_TRACING_SAMPLING_RATE=1.0
 生产环境建议保留追踪开关、降低采样率，例如 `LANGSMITH_TRACING_SAMPLING_RATE=0.1`（10%）
 或 `0.01`（1%）；只在排障期间临时调为 `1.0`。重启服务后生效。`GET /api/health` 的
 `observability.langsmith` 字段会显示开关、项目名、采样率和 API Key 是否已配置，但不会泄露密钥。
+
+### 人工介入（HITL）
+
+已接入 LangChain 的 `HumanInTheLoopMiddleware`。Agent 调用 `forget` 删除跨会话长期记忆前，
+会暂停并在聊天界面显示本次工具参数；人工可批准或拒绝，Agent 随后继续完成本轮回答。
+当前业务 SQL 已严格限制为只读，因此不会触发审批。生产环境新增发送邮件、支付、文件删除等
+有副作用的工具时，应一并加入审批清单，不应绕过 HITL。
+
+HITL 默认开启，单次等待上限为 300 秒，可通过 `.env` 调整：
+
+```env
+HITL_ENABLED=1
+HITL_TIMEOUT_SECONDS=300
+```
+
+审批接口为 `POST /api/approvals/<approval_id>`，请求体可使用
+`{"decision":"approve"}`、`{"decision":"reject"}`，或通过
+`{"decision":"edit","args":{...}}` 修改工具参数后执行。`GET /api/health` 的 `hitl`
+字段显示开关、受保护工具、等待时长和当前待审批数量。
 
 ### 切换到其它兼容服务
 
@@ -175,7 +211,7 @@ AI 的回答采用 **流式输出（打字机效果）**：`/api/chat` 返回 ND
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/health` | 健康检查：Checkpointer 后端（`sqlite` / `memory`）、知识库 `rag`、数据库 `database`、长期记忆 `store`、`planning`（规划模式与参数）、`memory`（三层记忆与压缩开关）、`tables`（非结构化表格库规模）、`observability.langsmith`（LangSmith 追踪状态） |
+| GET | `/api/health` | 健康检查：Checkpointer 后端（`sqlite` / `memory`）、知识库 `rag`、数据库 `database`、长期记忆 `store`、`planning`（规划模式与参数）、`memory`（三层记忆与压缩开关）、`tables`（非结构化表格库规模）、`observability.langsmith`（LangSmith 追踪状态）、`hitl`（人工审批状态）、`debugging`（错误处理与调试状态） |
 | GET | `/api/conversations` | 会话列表（按更新时间倒序） |
 | POST | `/api/conversations` | 新建会话，body 可选 `{ "title": "..." }` |
 | GET | `/api/conversations/<id>/messages` | 某会话的完整历史 **+ 该会话最近的执行计划 `plan` + 最近一轮的数据来源 `sources`**（刷新页面后计划面板、数据来源照常显示） |

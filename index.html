@@ -359,6 +359,17 @@
       width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
       animation: pulse 1.2s ease-in-out infinite;
     }
+    .approval-card {
+      margin: 8px 0 10px; padding: 12px; border: 1px solid rgba(229,72,77,.28);
+      border-left: 3px solid var(--err); border-radius: 8px; background: var(--panel-2);
+      color: var(--ink); font-size: 13px; line-height: 1.55;
+    }
+    .approval-card b { display: block; margin-bottom: 3px; }
+    .approval-card code { display: block; margin: 7px 0 10px; white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+    .approval-actions { display: flex; gap: 8px; }
+    .approval-actions button { border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer; background: var(--panel); color: var(--ink); }
+    .approval-actions .approve { background: var(--err); border-color: var(--err); color: #fff; }
+    .approval-actions button:disabled { opacity: .55; cursor: default; }
     @keyframes pulse { 0%, 100% { opacity: .25; transform: scale(.8) } 50% { opacity: 1; transform: scale(1) } }
 
     /* 底部输入框：固定在聊天区最下方——消息再多也只是消息区自己在滚，
@@ -1786,6 +1797,41 @@
       };
     }
 
+    function addApprovalCard(box, content, evt) {
+      if (!box || !content || !evt.approval_id) return;
+      const card = el('section', 'approval-card');
+      card.appendChild(el('b', '', '需要人工确认'));
+      card.appendChild(el('div', '', evt.description || '此操作需要批准后才能执行。'));
+      const args = document.createElement('code');
+      args.textContent = (evt.tool || 'tool') + '(' + JSON.stringify(evt.args || {}, null, 2) + ')';
+      card.appendChild(args);
+      const actions = el('div', 'approval-actions');
+      const approve = el('button', 'approve', '批准执行');
+      const reject = el('button', '', '拒绝');
+      approve.type = reject.type = 'button';
+      const decide = async (decision) => {
+        approve.disabled = reject.disabled = true;
+        try {
+          const res = await fetch('/api/approvals/' + encodeURIComponent(evt.approval_id), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ decision }),
+          });
+          const data = await asJson(res);
+          if (!res.ok) throw new Error(data.error || '提交审批失败');
+          card.replaceChildren(el('b', '', decision === 'approve' ? '已批准，Agent 正在继续执行' : '已拒绝，Agent 将继续处理')); 
+        } catch (error) {
+          approve.disabled = reject.disabled = false;
+          card.appendChild(el('div', '', '审批提交失败：' + error.message));
+        }
+      };
+      approve.addEventListener('click', () => decide('approve'));
+      reject.addEventListener('click', () => decide('reject'));
+      actions.append(approve, reject);
+      card.appendChild(actions);
+      box.insertBefore(card, content.parentElement);
+      scrollBottom();
+    }
+
     /* ---------------- 数据来源卡片（回答下方：这些数字到底出自哪里） ---------------- */
     // 支持两种形态：
     //   ① 普通问答后端登记的出处：{kind,label,name,tables,rows,detail,sql}
@@ -2334,6 +2380,9 @@
             const human = evt.label || ('正在使用 ' + evt.name);
             const line = statusView(); if (line) line.show(human + '…');
             if (showProcess()) fullText = human + '…\n';   // 「显示过程」勾选时仍写进正文
+          } else if (evt.type === 'approval_required') {
+            const line = statusView(); if (line) line.show('等待人工确认…');
+            addApprovalCard(answerBox, answerEl, evt);
           } else if (evt.type === 'rewind') {
             rewind(evt.chars);
           } else if (evt.type === 'token') {
@@ -2493,7 +2542,6 @@
       const n = Number(bytes) || 0;
       return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
     }
-
     function closeDataPreview() {
       dataPreviewMask.classList.remove('show');
       dataPreviewMask.setAttribute('aria-hidden', 'true');

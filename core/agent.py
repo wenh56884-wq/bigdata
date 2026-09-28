@@ -50,7 +50,7 @@ from typing import NotRequired
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentState
+from langchain.agents.middleware import AgentState, HumanInTheLoopMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -69,11 +69,14 @@ from services import ml_forecast  # sklearn 月度业务指标预测（三个库
 from services import sanitize  # 输出脱敏：结果集预处理 + 回答 / 流式文本兜底，避免个人信息出现在回答里
 from services import knowledge_learning  # 自动沉淀上传摘要与已完成问答，供后续知识检索使用
 from services.observability import langsmith_summary  # LangSmith 标准环境变量追踪的安全状态摘要
+from services import hitl  # 高风险工具必须经过人工审批
+from services import debugging  # 统一错误编号、脱敏日志与调试开关
 from services import pysandbox  # 受限 Python 计算沙箱：给 Agent 一个「用 Python 算」的能力
 from services import ml_insight  # 数据洞察：统计画像 / 相关分析 / 异常检测 / 聚类挖掘
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
+debugging.configure_logging()  # .env 已加载后刷新 LOG_LEVEL / LOG_FILE 配置
 
 DATA_DIR = PROJECT_ROOT / "data"
 CONVERSATIONS_FILE = DATA_DIR / "conversations.json"
@@ -83,6 +86,15 @@ TITLE_MAX_LEN = 20
 
 # 全局共享的知识库服务（knowledge/ 目录，懒构建索引）
 rag_service = RagService()
+
+# 标准 LangChain / LangGraph 执行路径使用官方 HITL middleware。自定义流式循环
+# 在实际调用工具前也复用 services.hitl 的审批闸门，保证网页主入口同样受保护。
+HITL_MIDDLEWARE = ([HumanInTheLoopMiddleware({
+    "forget": {
+        "allowed_decisions": ["approve", "reject", "edit"],
+        "description": "此操作将删除跨会话长期记忆，删除后无法恢复。请确认是否执行。",
+    },
+})] if hitl.enabled() else [])
 
 
 class WorkspaceAgentState(AgentState):
@@ -2704,6 +2716,8 @@ def build_agent(checkpointer=None):
         tools=TOOLS,
         system_prompt=build_system_prompt(),
         state_schema=WorkspaceAgentState,
+        middleware=HITL_MIDDLEWARE,
+        debug=debugging.enabled(),
         checkpointer=checkpointer,
         store=get_store()[0],  # 挂载跨会话 Store（长期记忆）
     )
@@ -3784,6 +3798,8 @@ class ChatService:
                         tools=TOOLS,
                         system_prompt=build_system_prompt(),
                         state_schema=WorkspaceAgentState,
+                        middleware=HITL_MIDDLEWARE,
+                        debug=debugging.enabled(),
                         checkpointer=checkpointer,
                         store=get_store()[0],  # 同一个 Store 实例，跨会话共享
                     )
@@ -3807,6 +3823,8 @@ class ChatService:
             "memory": memory_summary(),
             "tables": tables_summary(),
             "observability": {"langsmith": langsmith_summary()},
+            "hitl": hitl.manager.summary(),
+            "debugging": debugging.summary(),
         }
 
     # -- 会话管理 ----------------------------------------------------------- #
@@ -4130,7 +4148,31 @@ class ChatService:
                                     f"模型连续 {MAX_REPEAT_TOOL} 次重复调用工具 {name}（参数完全相同），"
                                     "疑似陷入死循环，已终止；可换一种问法或把任务拆小后再试。"
                                 )
-                            result, ok = _invoke_tool_call(call)
+                            if hitl.requires_approval(name):
+                                approval = hitl.manager.create(
+                                    thread_id, name, call.get("args") or {},
+                                    "此操作将删除跨会话长期记忆，删除后无法恢复。请确认是否执行。",
+                                )
+                                yield {
+                                    "type": "approval_required",
+                                    "approval_id": approval.id,
+                                    "thread_id": thread_id,
+                                    "tool": name,
+                                    "args": approval.args,
+                                    "description": approval.description,
+                                    "allowed_decisions": ["approve", "reject", "edit"],
+                                }
+                                review = hitl.manager.wait(approval)
+                                decision = review["decision"]
+                                if decision == "approve":
+                                    result, ok = _invoke_tool_call(call)
+                                elif decision == "edit":
+                                    result, ok = _invoke_tool_call({**call, "args": review.get("args") or {}})
+                                else:
+                                    reason = review.get("message") or "人工审批未通过"
+                                    result, ok = f"受保护操作 {name} 未执行：{reason}", False
+                            else:
+                                result, ok = _invoke_tool_call(call)
                             # 上下文度量：工具调用质量（失败率 / 同参数重试率）
                             meter.record_tool(name, call.get("args") or {}, ok)
                             meter.record_layer("tool_result", result)
@@ -4156,7 +4198,13 @@ class ChatService:
                     agent.update_state(config, {"messages": persisted})  # 落盘本回合
             except Exception as exc:
                 persist_plan(thread_id, plan)  # 出错也把已有的计划进度留下来（便于重试）
-                yield {"type": "error", "message": str(exc)}
+                error_id = debugging.record_error(exc, context="stream_ask")
+                yield {
+                    "type": "error",
+                    "message": "本轮处理失败，请稍后重试。",
+                    "error_id": error_id,
+                    **({"detail": debugging.safe_message(exc)} if debugging.enabled() else {}),
+                }
                 return
 
             answer = sanitize.mask_text("".join(answer_parts))
@@ -4226,7 +4274,13 @@ class ChatService:
                             {"messages": [HumanMessage(content=question), AIMessage(content=answer)]},
                         )
             except Exception as exc:
-                yield {"type": "error", "message": str(exc)}
+                error_id = debugging.record_error(exc, context="stream_deep")
+                yield {
+                    "type": "error",
+                    "message": "深度搜索处理失败，请稍后重试。",
+                    "error_id": error_id,
+                    **({"detail": debugging.safe_message(exc)} if debugging.enabled() else {}),
+                }
                 return
 
             messages_now = self.history(thread_id)
