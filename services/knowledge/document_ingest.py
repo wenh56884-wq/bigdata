@@ -3,6 +3,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+try:  # 标准 LangChain Loader；未安装时自动回退到内置轻量解析器
+    from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
+    _LANGCHAIN_LOADERS = True
+except ImportError:  # pragma: no cover
+    _LANGCHAIN_LOADERS = False
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 KNOWLEDGE_UPLOADS = PROJECT_ROOT / "knowledge" / "uploads"
 
@@ -24,6 +30,13 @@ def _target(path: Path) -> Path:
 
 
 def _read_text(path: Path) -> str:
+    if _LANGCHAIN_LOADERS:
+        try:
+            docs = TextLoader(str(path), autodetect_encoding=True).load()
+            if docs:
+                return docs[0].page_content
+        except Exception:
+            pass
     for encoding in ("utf-8-sig", "gb18030", "utf-8", "big5", "latin-1"):
         try:
             return path.read_text(encoding=encoding)
@@ -33,6 +46,19 @@ def _read_text(path: Path) -> str:
 
 
 def _extract_pdf(path: Path) -> str:
+    """优先用 LangChain PyPDFLoader；扫描件/无文字层页面回退到内置 OCR。"""
+    if _LANGCHAIN_LOADERS:
+        try:
+            loader = PyPDFLoader(str(path), mode="page", extraction_mode="plain")
+            standard_pages = [(doc.page_content or "").strip() for doc in loader.load()]
+            if standard_pages and all(standard_pages):
+                return "\n\n".join(standard_pages).strip()
+        except Exception:
+            pass
+    return _extract_pdf_legacy(path)
+
+
+def _extract_pdf_legacy(path: Path) -> str:
     from pypdf import PdfReader
 
     reader = PdfReader(str(path))
@@ -57,6 +83,28 @@ def _extract_pdf(path: Path) -> str:
 
 
 def _extract_docx(path: Path) -> str:
+    """优先用 LangChain Docx2txtLoader，并额外保留 Word 表格内容。"""
+    if _LANGCHAIN_LOADERS:
+        try:
+            loaded = Docx2txtLoader(str(path)).load()
+            text = loaded[0].page_content.strip() if loaded else ""
+            from docx import Document
+            document = Document(str(path))
+            parts = [text] if text else []
+            for table in document.tables:
+                for row in table.rows:
+                    cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+                    if any(cells):
+                        parts.append(" | ".join(cells))
+            result = "\n".join(parts).strip()
+            if result:
+                return result
+        except Exception:
+            pass
+    return _extract_docx_legacy(path)
+
+
+def _extract_docx_legacy(path: Path) -> str:
     from docx import Document
     document = Document(str(path))
     parts = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]

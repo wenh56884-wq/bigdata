@@ -50,7 +50,7 @@ py -3.11 -m venv .venv
 > ⚠️ **两个关键注意**（都是实测踩过的）：
 > ① 装依赖必须用 `.\.venv\Scripts\python.exe` **完整路径**开头，不要用裸 `python.exe`
 > （PATH 里的 `python` 可能指向别的环境，包装错地方）；
-> ② 校验装没装对：`.\.venv\Scripts\python.exe -c "import langchain, flask; print('OK')"`。
+> ② 校验装没装对：`.\.venv\Scripts\python.exe -c "import langchain, langchain_community, langchain_text_splitters, docx2txt, chardet, flask; print('OK')"`。
 
 ### 第 3 步：装并初始化 MySQL（8.0 或 8.4 均可，不要用 5.7）
 
@@ -95,7 +95,7 @@ powershell -ExecutionPolicy Bypass -File "<项目目录>\_import_dbs.ps1"
 cd "<项目目录>\app"
 
 # 1. 依赖自检（应输出 OK）
-.\.venv\Scripts\python.exe -c "import langchain, langgraph, flask, sklearn, matplotlib, pymysql, dotenv; print('OK')"
+.\.venv\Scripts\python.exe -c "import langchain, langchain_community, langchain_text_splitters, docx2txt, chardet, langgraph, flask, sklearn, matplotlib, pymysql, dotenv; print('OK')"
 
 # 2. 全包语法自检（应无输出）
 .\.venv\Scripts\python.exe -m compileall -q core services eval web.py predict.py build_techdoc.py

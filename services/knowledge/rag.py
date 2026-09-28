@@ -46,6 +46,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import Field
 
 try:                                    # 包式运行：python -m services.rag
@@ -104,84 +106,47 @@ def tokenize(text: str) -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
-# PDF 文本抽取（按页返回，懒加载 pypdf 依赖）
+# 文档加载与切分：LangChain Document Loader + Text Splitter
 # --------------------------------------------------------------------------- #
-def _extract_pdf_pages(path: Path) -> list[tuple[int, str]]:
-    """逐页抽取 PDF 文本，返回 ``[(页号, 该页文本), ...]``（自动跳过无文字页）。"""
-    try:
-        from pypdf import PdfReader
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("缺少 PDF 解析依赖 pypdf，请先执行：pip install pypdf") from exc
+# 本模块统一使用 LangChain 标准组件：
+#   - PDF   -> PyPDFLoader（按页加载，页号写入 metadata["page"]）
+#   - 文本  -> TextLoader（自动识别编码，md / markdown / txt 通用）
+#   - 切分  -> RecursiveCharacterTextSplitter（中文友好的分隔符顺序）
+_SPLITTER_SEPARATORS = ["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""]
 
-    reader = PdfReader(str(path))
+
+def _make_splitter(size: int | None = None, overlap: int | None = None) -> RecursiveCharacterTextSplitter:
+    """按项目默认配置构造 LangChain 标准 RecursiveCharacterTextSplitter。"""
+    return RecursiveCharacterTextSplitter(
+        chunk_size=size or CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP if overlap is None else overlap,
+        separators=_SPLITTER_SEPARATORS,
+        keep_separator=True,
+    )
+
+
+def _extract_pdf_pages(path: Path) -> list[tuple[int, str]]:
+    """使用 LangChain PyPDFLoader 逐页抽取 PDF，返回 ``[(页号, 该页文本), ...]``。"""
+    loader = PyPDFLoader(str(path), mode="page", extraction_mode="plain")
     pages: list[tuple[int, str]] = []
-    for number, page in enumerate(reader.pages, start=1):
-        try:
-            text = (page.extract_text() or "").strip()
-        except Exception:
-            text = ""
+    for doc in loader.load():
+        number = int(doc.metadata.get("page", 0)) + 1
+        text = doc.page_content.strip()
         if text:
             pages.append((number, text))
     return pages
 
 
-# --------------------------------------------------------------------------- #
-# 文档分块
-# --------------------------------------------------------------------------- #
-_BREAK_CHARS = "。！？；!?;\n，,、.… "
+def chunk_text(text: str, size: int | None = None, overlap: int | None = None) -> list[str]:
+    """使用 LangChain RecursiveCharacterTextSplitter 将文本切成检索友好的小块。
 
-
-def _split_long(text: str, size: int, overlap: int) -> list[str]:
-    """把超长文本切成带重叠的窗口，切点优先落在句末标点 / 空白处。"""
-    chunks: list[str] = []
-    start, n = 0, len(text)
-    while start < n:
-        end = min(start + size, n)
-        if end < n:
-            window = text[start:end]
-            cut = -1
-            for i in range(len(window) - 1, -1, -1):
-                if window[i] in _BREAK_CHARS:
-                    cut = i
-                    break
-            if cut > 0:
-                end = start + cut + 1
-        piece = text[start:end].strip()
-        if piece:
-            chunks.append(piece)
-        if end >= n:
-            break
-        start = max(end - overlap, start + 1)
-    return chunks
-
-
-def chunk_text(text: str, size: int = None, overlap: int = None) -> list[str]:
-    """按空行分段，优先保持段落完整；单段过长时按窗口切分。"""
-    size = size or CHUNK_SIZE
-    overlap = CHUNK_OVERLAP if overlap is None else overlap
-    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-
-    chunks: list[str] = []
-    buffer = ""
-    for paragraph in paragraphs:
-        # Markdown 标题处强制断块：让“### 题目 + 参考 SQL”等条目自包含成块，
-        # 避免检索召回“只含题目、不含答案/SQL”的残块
-        if re.match(r"^#{1,6}\s", paragraph) and buffer:
-            chunks.append(buffer)
-            buffer = ""
-        pieces = [paragraph] if len(paragraph) <= size else _split_long(paragraph, size, overlap)
-        for piece in pieces:
-            if not buffer:
-                buffer = piece
-            elif len(buffer) + 1 + len(piece) <= size:
-                buffer = f"{buffer}\n{piece}"
-            else:
-                chunks.append(buffer)
-                buffer = piece
-    if buffer:
-        chunks.append(buffer)
-    return chunks
+    保持原函数签名不变，调用方无需改动；分块顺序优先按段落 / 换行 / 中英文句末标点切分。
+    """
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return []
+    chunks = [part.strip() for part in _make_splitter(size, overlap).split_text(text)]
+    return [part for part in chunks if part]
 
 
 # --------------------------------------------------------------------------- #
@@ -442,7 +407,8 @@ class RagService:
                         for piece in chunk_text(page_text)
                     ]
                 else:
-                    text = path.read_text(encoding="utf-8", errors="ignore")
+                    loader = TextLoader(str(path), autodetect_encoding=True)
+                    text = loader.load()[0].page_content
                     pieces = [(piece, None) for piece in chunk_text(text)]
 
                 if pieces:
