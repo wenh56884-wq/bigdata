@@ -9,6 +9,3 @@ pymysql>=1.1.0
 numpy>=1.24.0
 scikit-learn>=1.3.0
 matplotlib>=3.8.0
-pandas>=2.0.0          # Excel / CSV 表格文件解析（services/spreadsheet.py）
-openpyxl>=3.1.0        # .xlsx 读写引擎（pandas 读 Excel 时依赖）
-xlrd>=2.0.1            # 老版 Excel .xls 解析（services/spreadsheet.py，缺了会静默读不出）

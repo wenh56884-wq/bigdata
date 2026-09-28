@@ -38,21 +38,13 @@ import argparse
 import math
 import os
 import re
-import sys
 import threading
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from pydantic import Field
-
-try:                                    # 包式运行：python -m services.rag
-    from services import vectordb
-except ModuleNotFoundError:             # 直接运行：python services/rag.py
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from services import vectordb
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -324,17 +316,6 @@ class _VectorIndex:
         return scored[:k]
 
 
-def _rag_chunk_ref(doc: Document) -> str:
-    """分块在向量库里的稳定主键："相对路径#分块序号[@p页码]"。
-
-    稳定很重要：知识库没改时 ref 不变 → 向量库判定"内容相同" → 不重复向量化。
-    """
-    meta = doc.metadata or {}
-    ref = f"{meta.get('source', 'unknown')}#{meta.get('chunk_index', 0)}"
-    page = meta.get("page")
-    return f"{ref}@p{page}" if page is not None else ref
-
-
 def _build_vector_index(documents: list[Document], config: dict) -> _VectorIndex:
     """用 OpenAI 兼容的 embedding 服务给全部分块向量化，构建内存索引。"""
     from langchain_openai import OpenAIEmbeddings
@@ -383,10 +364,6 @@ class RagService:
         self._built_files = 0
         self._chunk_count = 0
         self._error: str | None = None
-        # 持久化向量库（services/vectordb.py）：重启不丢索引，增量更新；不可用时自动降级
-        self._vdb = None
-        self._vdb_map: dict[str, int] = {}    # 向量库 ref → self._documents 下标
-        self._vdb_error: str | None = None
 
     # ------------------------- 文件枚举 ------------------------- #
     def _iter_source_files(self):
@@ -434,17 +411,10 @@ class RagService:
 
                 if pieces:
                     built_files += 1
-                # 更新时间：让模型（和用户）能判断这条资料是否过期（上下文工程的"来源标注"要求）
-                try:
-                    updated = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
-                except Exception:
-                    updated = ""
                 for index, (piece, page_number) in enumerate(pieces, start=1):
                     metadata: dict = {"source": relative, "chunk_index": index}
                     if page_number is not None:
                         metadata["page"] = page_number
-                    if updated:
-                        metadata["updated"] = updated
                     documents.append(Document(page_content=piece, metadata=metadata))
             except Exception as exc:
                 warnings.append(f"{relative}：加载失败（{exc}）")
@@ -462,8 +432,6 @@ class RagService:
             self._chunk_count = len(documents)
             self._error = None
 
-            # 持久化向量库：把分块同步进 VectorDB
-            self._vdb, self._vdb_map, self._vdb_error = None, {}, None
             if documents:
                 self._kw = _KeywordRetriever(documents=documents, k=TOP_K)
                 if self._vector_config:
@@ -471,32 +439,8 @@ class RagService:
                         self._vector = _build_vector_index(documents, self._vector_config)
                     except Exception as exc:  # embedding 服务不可用时自动降级，不中断
                         warnings.append(f"语义向量引擎初始化失败，已降级为关键词单路检索：{exc}")
-                self._sync_vectordb(documents, warnings)
 
             self._error = "；".join(warnings) if warnings else None
-
-    def _sync_vectordb(self, documents: list[Document], warnings: list[str]) -> None:
-        """将分块同步进持久化向量库（增量：内容未变的分块不重新向量化）。
-
-        任何失败都只是降级（回落到关键词 / 内存 embedding 路径），不影响知识库可用。
-        """
-        try:
-            if not vectordb.enabled():
-                return
-            store = vectordb.get_store()
-            items: list[tuple[str, str, dict]] = []
-            mapping: dict[str, int] = {}
-            for index, doc in enumerate(documents):
-                ref = _rag_chunk_ref(doc)
-                mapping[ref] = index
-                items.append((ref, doc.page_content or "", dict(doc.metadata or {})))
-            store.sync(items, prune=True)      # prune：删掉已从 knowledge/ 移除的旧向量
-            self._vdb = store
-            self._vdb_map = mapping
-        except Exception as exc:
-            self._vdb, self._vdb_map = None, {}
-            self._vdb_error = str(exc)
-            warnings.append(f"向量数据库同步失败，已降级为关键词/Embedding 检索：{exc}")
 
     def _ensure(self) -> None:
         if self._kw is None and self.files():
@@ -506,29 +450,13 @@ class RagService:
     def engines(self) -> dict:
         """当前已构建/可用的引擎详情（不触发 embedding 网络调用）。"""
         planned_vector = bool(embedding_config())
-        info = {
+        return {
             "keyword": self._kw is not None,
             "vector": self._vector is not None,
             "vector_planned": planned_vector,
             "vector_config": self._vector_config,
             "mode": "smart",
-            "vectordb_enabled": bool(self._vdb is not None),
-            "vectordb_error": self._vdb_error,
         }
-        if self._vdb is not None:
-            try:
-                stats = self._vdb.stats()
-                info["vectordb"] = {
-                    "path": stats.get("path"),
-                    "backend": stats.get("backend"),
-                    "vectors": stats.get("vectors"),
-                    "dim": stats.get("dim"),
-                    "ivf": stats.get("ivf"),
-                    "size_mb": stats.get("size_mb"),
-                }
-            except Exception:
-                pass
-        return info
 
     def summary(self) -> dict:
         """知识库状态（不会触发 embedding 网络调用）。"""
@@ -547,8 +475,7 @@ class RagService:
     def backend_label(self) -> str:
         """给界面/命令行展示用的引擎名称。"""
         kw_on = self._kw is not None
-        # 持久化向量库同样是"语义那一路"（和不落盘的 _VectorIndex 二选一）
-        vec_on = self._vector is not None or bool(self._vdb is not None and self._vdb_map)
+        vec_on = self._vector is not None
         if vec_on and kw_on:
             return "智能（关键词+语义 双路融合）"
         if vec_on:
@@ -585,17 +512,9 @@ class RagService:
         vector_allowed = mode in ("smart", "hybrid", "vector")
         vec_error: str | None = None
         if vector_allowed:
-            if self._vdb is not None and self._vdb_map:
-                try:                            # 持久化向量库优先（重启不丢、增量更新）
-                    for hit in self._vdb.search(query, per_list):
-                        index = self._vdb_map.get(hit["ref"])
-                        if index is not None:
-                            vec_ranked.append((float(hit["score"]), index))
-                except Exception as exc:
-                    vec_error = f"向量数据库检索失败：{exc}"
-            elif self._vector is None:
+            if self._vector is None:
                 if mode == "vector":
-                    vec_error = "语义向量引擎未构建（请确认已配置可用的 EMBEDDING_* 或 VECTOR_DB=1）"
+                    vec_error = "语义向量引擎未构建（请确认已配置可用的 EMBEDDING_*）"
             else:
                 try:
                     vec_ranked = self._vector.search(query, per_list)

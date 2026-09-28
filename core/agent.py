@@ -60,13 +60,9 @@ from services.rag import tokenize as rag_tokenize  # 中文友好的分词（长
 
 from core import planning  # 规划引擎：任务拆解 / 执行自检 / 深度搜索拆解（Planning 模块）
 from core import prompting  # 提示词工程：查询意图结构化理解（Query Understanding）+ SQL / 回答清单
-from core import reasoning  # 推理层：CoT / ToT 树状多路径 / MCTS 规划搜索 / Reflexion 反思记忆
-from core import context  # 上下文工程：提示分层合成 / 工具动态注册 / 检索上下文管线 / 上下文度量
-from services import tables  # 非结构化表格：把 非结构化数据/ 的 markdown/HTML 表格与 Excel/CSV 文件解析成可 SQL 查询的 SQLite
+from services import tables  # 非结构化表格：把 非结构化数据/ 的 markdown/HTML 表格解析成可 SQL 查询的 SQLite
 from services import ml_forecast  # sklearn 月度业务指标预测（三个库）
 from services import sanitize  # 输出脱敏：结果集预处理 + 回答 / 流式文本兜底，避免个人信息出现在回答里
-from services import pysandbox  # 受限 Python 计算沙箱：给 Agent 一个「用 Python 算」的能力
-from services import ml_insight  # 数据洞察：统计画像 / 相关分析 / 异常检测 / 聚类挖掘
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -1109,264 +1105,6 @@ def database_status() -> dict:
 # --------------------------------------------------------------------------- #
 # 工具
 # --------------------------------------------------------------------------- #
-# ---- 数据洞察类工具共享的小部件：库名别名解析 / 逗号分隔列名 ---- #
-_DB_ALIAS = {
-    "finance": "financial_asset_management", "financial": "financial_asset_management",
-    "金融": "financial_asset_management", "financial_asset_management": "financial_asset_management",
-    "healthcare": "healthcare_analytics_competition", "medical": "healthcare_analytics_competition",
-    "医疗": "healthcare_analytics_competition",
-    "healthcare_analytics_competition": "healthcare_analytics_competition",
-    "telecom": "telecom_operations_db", "通信": "telecom_operations_db",
-    "telecom_operations_db": "telecom_operations_db",
-}
-
-
-def _resolve_db_name(database: str) -> str:
-    """把 finance / 医疗 这类简称换成真实库名；给不出就原样返回（由下游报错）。"""
-    return _DB_ALIAS.get(str(database or "").strip().lower()) or str(database or "").strip()
-
-
-def _split_cols(text: str) -> list[str]:
-    """把 "a, b, c" / "a，b" / "a b" 拆成列名列表。"""
-    parts = re.split(r"[,，;；\s]+", str(text or "").strip())
-    return [p for p in parts if p]
-
-
-def _last_result_rows(limit: int = 2000) -> tuple[list[str], list[dict]]:
-    """把最近一次查询结果转成 [{列名: 值}]，供 Python 沙箱直接算。
-
-    值会被规整成「沙箱友好的类型」：Decimal → float、日期 → 字符串、其余保持原样。
-    """
-    cols = list(_LAST_QUERY.get("headers") or [])
-    raw = list(_LAST_QUERY.get("rows") or [])[:limit]
-    rows: list[dict] = []
-    for row in raw:
-        item: dict = {}
-        for key, value in zip(cols, list(row)):
-            try:
-                if hasattr(value, "as_tuple"):          # Decimal
-                    item[key] = float(value)
-                elif isinstance(value, (int, float, bool)) or value is None:
-                    item[key] = value
-                elif hasattr(value, "isoformat"):       # date / datetime
-                    item[key] = value.isoformat()
-                else:
-                    item[key] = str(value)
-            except Exception:
-                item[key] = str(value)
-        rows.append(item)
-    return cols, rows
-
-
-@tool
-def run_python(code: str) -> str:
-    """用 Python 对**最近一次查询结果**做二次计算（同比环比、移动平均、分位数、线性回归、
-    多结果集四则运算、字符串清洗等 SQL 不好写或写起来很绕的活）。
-
-    调用方式：先用 execute_sql / query_tables 查出数据，再用本工具算，
-    查询结果会自动注入为变量 rows（列表，每元素是一行的字典）与 cols（列名列表）。
-
-    可用：四则与比较运算、列表/字典推导、sum/len/sorted/round/min/max/abs/enumerate/zip 等内置函数，
-    以及 math（sqrt/log 等）、statistics（mean/median/stdev 等）、numpy（写作 np）。
-    禁止：import、文件读写、while 循环（请用 for + range）；超过 50 万次迭代会自动中止。
-
-    取值方式二选一：① 把结果赋给 result 变量；② 最后一行为裸表达式（会自动取其值）。
-    print() 的输出也会被捕获返回。
-
-    示例：
-      run_python("sum(r['amount'] for r in rows)")                       # 汇总
-      run_python("result = sorted(rows, key=lambda r: -r['amount'])[:5]") # Top5
-      run_python("import statistics" ...)                                # 错误：不允许 import
-    """
-    cols, rows = _last_result_rows()
-    if not rows:
-        return "（还没有可计算的数据：请先执行 execute_sql 或 query_tables 查询。）"
-    # 数据进沙箱**之前**先按列名脱敏：模型拿到的数据本身就是干净的，
-    # 无论它怎么写代码（sorted / filter / 原样输出）都不可能把个人信息吐出来。
-    # （execute_sql 已脱过一次，mask_rows 幂等，重复处理安全）
-    try:
-        matrix = [[row.get(c) for c in cols] for row in rows]
-        cols, masked, _masked_cols = sanitize.mask_rows(list(cols), matrix)
-        rows = [dict(zip(cols, line)) for line in masked]
-    except Exception:
-        pass
-    outcome = pysandbox.run(code, {"rows": rows, "cols": cols})
-    if not outcome.get("ok"):
-        return f"计算失败：{outcome.get('error') or '未知错误'}\n可参考：变量名用 rows（行字典列表）/ cols（列名）。"
-    lines = [f"【数据】来自最近一次查询：{len(rows)} 行，列：{'、'.join(cols[:12])}"]
-    if outcome.get("stdout"):
-        lines.append(f"【print 输出】\n{outcome['stdout']}")
-    lines.append(f"【计算结果】{outcome.get('result_text')}")
-    if len(rows) >= 2000:
-        lines.append("提示：只注入了前 2000 行，如需全量请先 SQL 聚合。")
-    # 结果里可能整行带出姓名/电话/证件号（比如 sorted(rows,…)），与 execute_sql 同一口径脱敏
-    return sanitize.mask_text("\n".join(lines))
-
-
-@tool
-def analyze_data(database: str, table: str, columns: str = "", where: str = "",
-                 sample_limit: int = 5000) -> str:
-    """对某个业务库的表做**统计分析**（中级数据分析）：自动挑选数值列，给出完整统计画像
-    （非空数、缺失率、均值、中位、四分位、标准差、变异系数、偏度），并计算列两两之间的
-    皮尔逊 / 斯皮尔曼相关系数，挑出最强相关的组合加以解读。适合先于 SQL 手工聚合，
-    用来摸清一张表的数据分布与可用性。
-
-    参数：database 用 finance / medical / telecom（或完整库名）；table 表名；
-    columns 可选，指定要分析的列名，逗号分隔，留空表示自动选全部数值列；
-    where 可选过滤条件（如 "PaymentStatus='PAID'"）；sample_limit 抽样行数上限，默认 5000。
-    """
-    db = _resolve_db_name(database)
-    try:
-        cols = _split_cols(columns) or None
-        limit = max(100, min(int(sample_limit or 5000), ml_insight.MAX_SAMPLE))
-        headers, rows = ml_insight.fetch_rows(db, table, cols, where=where, limit=limit)
-        picked, matrix = ml_insight._numeric_matrix(rows, headers, cols)
-        if not picked:
-            return f"（表 {db}.{table} 没有可用于统计的数值列；先用 get_table_schema 看一下列结构。）"
-        profile = ml_insight.numeric_profile(matrix, picked)
-        skipped = list(getattr(ml_insight._numeric_matrix, "last_skipped", []) or [])
-        lines = [
-            f"数据来源：{db}.{table}（{'有条件过滤' if where else '全表'}，抽样 {len(rows)} 行）",
-            "",
-            ml_insight.render_profile(profile),
-            "",
-            ml_insight.render_corr(ml_insight.correlation_matrix(matrix, picked)),
-        ]
-        if skipped:                                  # 说明哪些列被排除，避免模型以为数据丢了
-            lines += ["", "未参与统计的列：" + "、".join(
-                f"{item['列']}（{item['原因']}）" for item in skipped[:8])]
-        return sanitize.mask_text("\n".join(lines))
-    except Exception as exc:
-        return f"统计分析失败：{exc}"
-
-
-@tool
-def detect_data_anomalies(database: str, table: str, value_col: str, label_col: str = "",
-                          where: str = "") -> str:
-    """**自动建模之一：异常检测**（高级数据分析）。对指定数值列用三种口径一起投票找出离群点：
-    z-score（偏离 3σ 以上）、箱线图（超出 1.5 倍四分位距）、孤立森林 IsolationForest。
-    至少两种口径同时命中才判为异常，避免把「重尾分布里的正常大客户」误判成异常。
-    适合回答「哪些月/哪些客户/哪些订单不正常」这类问题。
-
-    参数：database 同 analyze_data；table 表名；value_col 要检测的数值列（如 金额、用量）；
-    label_col 可选，用来标记异常行的列（如 月份、客户名、订单号），便于读懂是谁异常；
-    where 可选过滤条件。
-    """
-    db = _resolve_db_name(database)
-    try:
-        cols = [value_col] + ([label_col] if label_col else [])
-        limit = max(200, min(int(ml_insight.MAX_SAMPLE), 20000))
-        headers, rows = ml_insight.fetch_rows(db, table, cols, where=where, limit=limit)
-        if value_col not in headers:
-            return f"（表里没有列 {value_col}；可用列：{'、'.join(headers[:15])}）"
-        vi, li = headers.index(value_col), headers.index(label_col) if label_col in headers else -1
-        values = ml_insight._to_float_list([r[vi] if vi < len(r) else None for r in rows])
-        labels: list[str] = []
-        if li >= 0:
-            raw_labels = [str(r[li]) for r in rows]
-            # 标签列按**真实列名**走一遍脱敏：像 patient_name 这种列会被判成姓名，
-            # 而纯文本正则认不出没有称谓跟着的裸人名（"李玉梅" vs "患者李玉梅"）
-            _, masked_labels, _hits = sanitize.mask_rows([label_col], [[v] for v in raw_labels])
-            labels = [str(line[0]) for line in masked_labels]
-        result = ml_insight.detect_outliers(values, labels)
-        head = f"数据来源：{db}.{table}（{len(rows)} 行，检测列 {value_col}）"
-        # label_col 常常是客户名 / 订单号：异常点会直接把这些值带出来，必须先脱敏
-        return sanitize.mask_text(head + "\n\n" + ml_insight.render_outliers(result, value_col))
-    except Exception as exc:
-        return f"异常检测失败：{exc}"
-
-
-@tool
-def cluster_data(database: str, table: str, columns: str, max_k: int = 4, where: str = "") -> str:
-    """**自动建模之二：聚类挖掘**（高级数据分析）。按给定数值列对行做客户/对象分群：
-    自动标准化后在 k=2..max_k 里用轮廓系数选出最优簇数（KMeans），给出每个簇的规模、
-    占比、以及**哪些特征相对整体显著偏高/偏低**，并据此给簇起一个像「金额偏高、频次偏低」的画像名。
-    适合回答「客户能分成几类、每类什么特点」这类没有现成标签的问题。
-
-    参数：database 同 analyze_data；table 表名；columns 参与分群的数值列，逗号分隔（建议 2~5 个）；
-    max_k 最大簇数，默认 4；where 可选过滤条件。
-    """
-    db = _resolve_db_name(database)
-    try:
-        cols = _split_cols(columns)
-        if len(cols) < 1:
-            return "（请至少给出 1 个用于分群的数值列。）"
-        limit = max(200, min(int(ml_insight.MAX_SAMPLE), 20000))
-        headers, rows = ml_insight.fetch_rows(db, table, cols, where=where, limit=limit)
-        picked, matrix = ml_insight._numeric_matrix(rows, headers, cols)
-        if not picked:
-            return f"（这些列没有可用的数值数据：{columns}）"
-        k = max(2, min(int(max_k or 4), 6))
-        result = ml_insight.cluster_profile(matrix, picked, max_k=k)
-        head = f"数据来源：{db}.{table}（{len(rows)} 行，分群依据：{'、'.join(picked)}）"
-        tail = ""
-        skipped = list(getattr(ml_insight._numeric_matrix, "last_skipped", []) or [])
-        if skipped:
-            tail = "\n\n未参与分群的列：" + "、".join(
-                f"{item['列']}（{item['原因']}）" for item in skipped[:8])
-        return sanitize.mask_text(head + "\n\n" + ml_insight.render_clusters(result) + tail)
-    except Exception as exc:
-        return f"聚类分析失败：{exc}"
-
-
-@tool
-def query_table_python(code: str, table: str = "", question: str = "") -> str:
-    """用 **Python（pandas）** 查询表格数据——SQL 不好写时用这个（分组透视、多层索引、
-    字符串清洗、时间重采样、多表合并、占比与同比环比等）。
-
-    数据已注入为变量 **df**（pandas DataFrame），另可直接用 **pd**（pandas）与 **np**（numpy）。
-    取值方式：① 把结果赋给 result 变量；② 最后一行为裸表达式（自动取其值）。print() 也会返回。
-
-    参数：code 要执行的 Python；table 表名或文件名关键字（留空则取最近一次 find_table 的表）；
-    question 把用户问题原文带过来（**会连同这段代码一起记进记忆**，下次问相似问题就能复用）。
-
-    示例：
-      query_table_python("df.groupby('学院').size().sort_values(ascending=False)", table="test")
-      query_table_python("result = df[df['困难等级']=='特别困难'].shape[0]")
-      query_table_python("df.pivot_table(index='学院', columns='困难等级', values='序号', aggfunc='count')")
-
-    规则：不允许 import / open / while；列名照抄 describe_table 返回的列名（中文列名可直接用）。
-    """
-    try:
-        from services import uploads
-        frame, used = uploads.load_dataframe(table or _LAST_TABLE.get("name", ""))
-    except Exception as exc:
-        return (f"取表失败：{exc}\n先用 find_table 召回候选表（它会告诉你表名与列名），"
-                "再调用本工具。")
-    _LAST_TABLE["name"] = used
-    try:
-        import numpy as np
-        import pandas as pd
-    except ImportError as exc:
-        return f"环境缺少 pandas/numpy：{exc}"
-    outcome = pysandbox.run(code, {"df": frame, "pd": pd, "np": np})
-    if not outcome.get("ok"):
-        return f"执行失败：{outcome.get('error')}\n提示：数据在 df 里，列名见 describe_table；不能有 import / while。"
-
-    result = outcome.get("result")
-    if hasattr(result, "to_string"):                       # DataFrame / Series：完整表格输出
-        shown = result.to_string(max_rows=60, max_cols=30)
-    elif isinstance(result, (list, dict, tuple, set)):
-        shown = json.dumps(result, ensure_ascii=False, default=str)[:2000]
-    else:
-        shown = str(result)
-    head = f"【数据表】{used}（{len(frame)} 行 × {len(frame.columns)} 列）"
-    if getattr(frame, "columns", None) is not None and len(frame.columns):
-        head += "\n【列名】" + "、".join(str(c) for c in list(frame.columns)[:20])
-    text = "\n".join([head, "【计算结果】" + shown])
-    if outcome.get("stdout"):
-        text += "\n【print 输出】" + outcome["stdout"]
-
-    # 自动学习：把「问题 → 代码」记下来，下次遇到相似问题直接复用
-    if question or code:
-        try:
-            from services import table_memory
-            table_memory.remember_query(question or "(未注明问题)", code, table=used)
-        except Exception:
-            pass
-    return sanitize.mask_text(text)
-
-
 @tool
 def calculator(expression: str) -> str:
     """安全地计算数学表达式，支持 sqrt、pow、sin、log、pi 等常见数学函数。"""
@@ -1862,14 +1600,11 @@ def _table_keywords(question: str) -> str:
 
 @tool
 def list_table_sets() -> str:
-    """列出「非结构化表格库」的全部数据集（规模与适合的问题类型）。
-
-    数据集包括：表格查询 / 领域运算 / 多步检索（三个评测数据文件），
-    以及 **files：放进 非结构化数据/ 目录的 Excel / CSV / TSV 表格文件**（若目录里有）。
+    """列出「非结构化表格库」的三个数据集（规模与适合的问题类型）。
 
     什么时候用：用户问的是这些表格里的数据（咖啡消费、气象、电力/新能源、企业财报、
-    保险、地区经济，或用户自己放进目录的 Excel/CSV），而不是本机 MySQL 三个业务库
-    （金融/医疗/通信）时，先调用本工具确认数据范围，再 find_table 定位表、query_tables 查数。
+    保险、地区经济等），而不是本机 MySQL 三个业务库（金融/医疗/通信）时，
+    先调用本工具确认数据范围，再 find_table 定位表、query_tables 查数。
     注意：这些表格**不在 MySQL 里**，不要用 execute_sql 去查它们。"""
     hint = _ensure_table_index()
     if hint:
@@ -1890,8 +1625,7 @@ def analyze_table_query(question: str, dataset: str = "") -> str:
     """【写 SQL 前先做这一步】分析「非结构化表格库」的问题：该查哪个数据集、该用哪些英文检索词、
     这是什么题型、对应 SQL 怎么写、有哪些坑。**纯本地规则，不调用模型也不查库，很快**。
 
-    参数 question：用户问题原文；dataset：可选，限定数据集（table_query / domain_ops / multi_step /
-    files=本地 Excel/CSV 文件）。
+    参数 question：用户问题原文；dataset：可选，限定数据集（table_query / domain_ops / multi_step）。
     返回四块信息：
     ① 数据集判定（按命中词打分，给出建议 dataset）——把它传给 find_table 更准；
     ② 中文术语 → 英文检索词（表内容是英文，这步能显著提升召回，避免关键词对不上）；
@@ -1938,8 +1672,7 @@ def find_table(question: str, dataset: str = "", limit: int = 5, keywords: str =
     """在「非结构化表格库」里按问题召回候选表，返回表 id、行列数、列名与命中词。
 
     参数 question：用户问题原文；如果问题里带有表 id（15 位十六进制，如 b40962fe65f24d9）会精确命中；
-    参数 dataset：可选，限定数据集（table_query / domain_ops / multi_step / files=本地 Excel·CSV，
-    或用中文“表格查询/领域运算/多步检索/本地表格”）；
+    参数 dataset：可选，限定数据集（table_query / domain_ops / multi_step，或用中文“表格查询/领域运算/多步检索”）；
     参数 limit：返回多少张候选表（默认 5）；
     参数 keywords：可选，额外的英文检索词（**用法：先把 analyze_table_query 返回的「中文术语 → 英文检索词」
     填进来**，召回会明显更准；留空时内部会自动做一轮中文术语扩展，必要时还会调用模型补关键词）。
@@ -1983,21 +1716,7 @@ def find_table(question: str, dataset: str = "", limit: int = 5, keywords: str =
         )
     if translated:
         lines.append(f"（中文问题已额外用英文关键词检索：{translated}）")
-    # 记住这一轮用的是哪张表（query_table_python 没显式传表名时就接着用它）
-    _LAST_TABLE["name"] = hits[0]["table"]
-    # 自动记忆：① 以前这类问题是怎么查的 ② 上传文件时自动生成的「数据卡片」
-    try:
-        from services import table_memory
-        recalled = table_memory.recall_text(question)
-        if recalled:
-            lines.append(recalled)
-        cards = table_memory.cards_text(limit_chars=900)
-        if cards:
-            lines.append("【已记住的表格结构（来自上传时自动解析）】\n" + cards)
-    except Exception:
-        pass
-    lines.append("下一步：describe_table(table='候选表id') 看完整列名与数值列；"
-                 "SQL 不好写时用 query_table_python 写 Python（df 已注入）。")
+    lines.append("下一步：describe_table(table='候选表id') 看完整列名与数值列，再写 SQL。")
     return "\n".join(lines)
 
 
@@ -2014,30 +1733,16 @@ def describe_table(table: str) -> str:
     detail = tables.table_info(table)
     if not detail:
         return f"（没有找到表 {table}；先用 find_table 召回候选表。）"
-    # 预览行也要脱敏：用户放进来的 Excel 常常就是花名册/客户名单（姓名、电话、证件号），
-    # 而 query_tables 虽然已脱敏，describe_table 这一步原本会把前几行**原样**吐给模型。
-    # 注意 preview 每行是 dict（列名→值），要先按列顺序摊平成值列表再交给 mask_rows。
-    columns_raw = [str(c) for c in detail["columns"]]
-    raw_preview = [dict(row) for row in (detail.get("preview") or [])]
-    matrix = [[row.get(c) for c in columns_raw] for row in raw_preview]
-    masked_cols: list = []
-    try:
-        columns_masked, matrix, masked_cols = sanitize.mask_rows(columns_raw, matrix)
-    except Exception:
-        columns_masked = columns_raw
     lines = [
         f"{detail['table']}（{detail['dataset_title']}，来源 {detail['source_file']}）",
         f"{detail['n_rows']} 行 × {detail['n_cols']} 列"
         + ("（HTML 表）" if detail["is_html"] else ""),
-        "列名：" + "、".join(columns_masked),
+        "列名：" + "、".join(str(c) for c in detail["columns"]),
         "数值列（可直接算术）：" + ("、".join(str(c) for c in detail["numeric_columns"]) or "无"),
         "前 3 行预览：",
     ]
-    for values in matrix:
-        lines.append("  " + json.dumps(dict(zip(columns_masked, values)), ensure_ascii=False)[:400])
-    note = sanitize.note_for(masked_cols)
-    if note:
-        lines.append(note)
+    for row in detail["preview"]:
+        lines.append("  " + json.dumps(row, ensure_ascii=False)[:400])
     lines.append("下一步：query_tables(sql=...) 用只读 SQL 取数（大表请先聚合/筛选，不要 SELECT *）。")
     return "\n".join(lines)
 
@@ -2103,10 +1808,6 @@ TOOLS = (
     + [analyze_query]  # 中文问句关键词抓取与库/表/术语定位（NL→SQL 精准识别）
     + [plot_last_result]  # Matplotlib 可视化：把最近一次查询结果（业务库/表格库）画成图
     + [list_forecast_metrics, forecast_metric]  # sklearn 机器学习月度预测
-    # 三级数据能力：初级=SQL 查询（execute_sql/query_tables）· 中级=统计分析与 Python 计算 · 高级=自动建模
-    + [run_python]  # 受限 Python 沙箱：对最近一次查询结果做同比环比 / 移动平均 / 线性回归等二次计算
-    + [analyze_data, detect_data_anomalies, cluster_data]  # 统计画像/相关分析、异常检测、聚类挖掘
-    + [query_table_python]  # 用 Python(pandas) 查表格数据：df 已注入，SQL 不好写的活交给它 + 自动记忆
     + [plan_task, update_plan]  # 规划：任务拆解 + 步骤勾选（复杂任务才会用到）
     + ([list_table_sets, analyze_table_query, find_table, describe_table, query_tables]
        if TABLE_ENABLED else [])
@@ -2235,22 +1936,7 @@ def build_system_prompt(
     now: datetime | None = None,
     plan: "planning.Plan | None" = None,
     summary: str | None = None,
-    tools: list[str] | None = None,
 ) -> str:
-    """渲染 System Prompt（Dynamic Prompt）。
-
-    - “System Prompt”：把角色 + 工具规则整段作为系统消息固定注入。
-    - “Dynamic Prompt”：同一套模板里留出运行时才有的变量，每次问答前重新渲染：
-
-      * 当前时间 / 星期几 → 问“现在几点”可直接回答，不必等工具；
-      * **本轮执行计划**（planning.Plan）→ 复杂任务先拆解再按步执行，用户能看到进度；
-      * **早期对话摘要**（长会话记忆压缩）→ 上下文既记得住又不爆炸；
-      * **本轮注册的工具**（tools）→ 工具清单替换成实际子集，并附一行一个的用途/参数约束。
-
-    合成走 `core/context.compose()`：各块标注优先级，自动跨块去重，
-    超过 `CTX_BUDGET` 预算时**从低优先级块开始丢**（`) optional 块先丢`）。
-    合成报告留在 `build_system_prompt.last_report`，便于评估脚本统计上下文用量。
-    """
     """渲染 System Prompt（Dynamic Prompt）。
 
     - “System Prompt”：把角色 + 工具规则整段作为系统消息固定注入。
@@ -2264,145 +1950,23 @@ def build_system_prompt(
     注入 create_agent）完全不受影响。
     """
     now = now or datetime.now()
-    time_text = (
+    parts = [
         f"今天是 {now:%Y-%m-%d}（星期{WEEKDAYS[now.weekday()]}），当前时间 {now:%H:%M:%S}。"
         "基于该时间回答“现在几点、今天星期几”之类问题，无需再调用工具。"
-    )
-    role_text = _BASE_PROMPT if not tools else _BASE_PROMPT.replace(
-        _TOOL_NAMES, "、".join(tools))       # 工具清单替换成本轮实际注册的那批
-
-    # 关闭 CTX 时保持与改造前完全一致的行为（纯拼接）
-    if not context.enabled():
-        parts = [time_text]
-        if summary:
-            parts.append("【本会话早期对话摘要（长会话记忆压缩，供你延续上下文）】\n"
-                         + summary.strip()
-                         + "\n（摘要未覆盖的细节若不确定，请向用户确认，不要编造。）")
-        parts.append(role_text)
-        parts.append(prompting.guardrails_block(tables_ready=bool(TABLE_ENABLED)))
-        parts.append(context.ROUTING_RULES)     # 路由规则在两种模式下都给，避免知识题跑 SQL
-        if reasoning.cot_enabled():
-            parts.append(reasoning.COT_RULES)
-        if plan is not None and getattr(plan, "steps", None):
-            parts.append(_plan_system_hint(plan))
-        return "\n\n".join(parts)
-
-    # 上下文工程：每个块带**优先级**，合成时自动去重、超预算从低优先级块开始丢
-    blocks: list[context.Block] = [
-        context.block("time", time_text, optional=False),
-        context.block("role", role_text, optional=False),
-        # 清单式约束单独成块：比起塞在长段落里，模型对这种「写 SQL 前必查 / 回答前必查」
-        # 的编号清单遵循率明显更高（散落的经验规则在这里收敛成一张 checklist）
-        context.block("safety", prompting.guardrails_block(tables_ready=bool(TABLE_ENABLED)),
-                      optional=False),
-        # 冲突时的取舍顺序 + 一个正面示例（priorities + few-shot）
-        context.block("example", context.PRIORITY_RULES + "\n" + context.ANSWER_EXAMPLE),
-        # 第一层路由：先把「问数据」和「问制度」分开（知识类问题跑 SQL 是最常见的偏航）
-        context.block("task", context.ROUTING_RULES, optional=False),
     ]
     if summary:
-        blocks.append(context.block(
-            "memory",
-            "【本会话早期对话摘要（长会话记忆压缩，供你延续上下文）】\n" + summary.strip()
-            + "\n（摘要未覆盖的细节若不确定，请向用户确认，不要编造。）"))
+        parts.append(
+            "【本会话早期对话摘要（长会话记忆压缩，供你延续上下文）】\n"
+            + summary.strip()
+            + "\n（摘要未覆盖的细节若不确定，请向用户确认，不要编造。）"
+        )
+    parts.append(_BASE_PROMPT)
+    # 清单式约束单独成块：比起塞在长段落里，模型对这种「写 SQL 前必查 / 回答前必查」
+    # 的编号清单遵循率明显更高（散落的经验规则在这里收敛成一张 checklist）
+    parts.append(prompting.guardrails_block(tables_ready=bool(TABLE_ENABLED)))
     if plan is not None and getattr(plan, "steps", None):
-        blocks.append(context.block("task", _plan_system_hint(plan), optional=False))
-    if reasoning.cot_enabled():
-        blocks.append(context.block("hint", reasoning.COT_RULES))
-    if tools:                                # 本轮注册的工具：一行一个（用途 + 参数约束）
-        blocks.append(context.block("hint", context.render_tool_guide(tools)))
-
-    prompt, report = context.compose(blocks)
-    build_system_prompt.last_report = report
-    return prompt
-
-
-build_system_prompt.last_report = {}   # 最近一次 System Prompt 的合成报告（供评估统计）
-
-
-_KB_KEYWORDS: list[str] = []          # 从知识库文档动态抽取的主题词（缓存）
-_KB_KEYWORDS_STAMP: float = 0.0
-_KB_KEYWORDS_TTL = 300.0              # 5 分钟刷新一次，跟着用户的知识库走
-
-
-def knowledge_keywords() -> list[str]:
-    """把知识库文档的**文件名 + 各级标题**抽成路由关键词。
-
-    这样替换/新增知识库文档后，意图路由会自动适应——不用回来改规则表。
-    """
-    global _KB_KEYWORDS, _KB_KEYWORDS_STAMP
-    now = time.time()
-    if _KB_KEYWORDS and now - _KB_KEYWORDS_STAMP < _KB_KEYWORDS_TTL:
-        return _KB_KEYWORDS
-    words: set[str] = set()
-    sources: set[str] = set()
-    # ① 文件名：从已建索引的文档元信息里取，也顺带上 knowledge/ 目录里的新文件
-    try:
-        rag_service._ensure()            # 首次访问时构建索引（拿到 _documents）
-        for doc in list(getattr(rag_service, "_documents", []) or []):
-            source = str((doc.metadata or {}).get("source", ""))
-            if source:
-                sources.add(source)
-    except Exception:
-        pass
-    try:
-        for path in rag_service.directory.rglob("*"):
-            if path.is_file() and path.suffix.lower() in (".md", ".markdown", ".txt", ".pdf"):
-                sources.add(str(path.relative_to(KNOWLEDGE_DIR)))
-    except Exception:
-        pass
-    for source in sources:
-        stem = Path(source).stem or source
-        for token in re.split(r"[_\-\s（）()【】、,，]+", stem):
-            if len(token) >= 2 and re.search(r"[\u4e00-\u9fff]", token):
-                words.add(token)
-
-    # ② 标题：文档的各级标题是极强的路由信号（如「住宿标准」「市内交通与餐饮」）
-    try:
-        for source in sources:
-            path = rag_service.directory / source
-            if not path.exists() or path.suffix.lower() not in (".md", ".markdown", ".txt"):
-                continue
-            head = path.read_text(encoding="utf-8", errors="ignore")[:20000]
-            for line in head.splitlines():
-                line = line.strip()
-                # 只取二级以内的小节标题：三级标题通常是「1 列出所有姓王的客户信息」
-                # 这种问答样例，拿它们当路由词会把数据类问题误判到知识库
-                matched = re.match(r"^#{1,2}\s+(?!\d)(.+)$", line)
-                if not matched:
-                    continue
-                title = matched.group(1).strip(" 。：:")
-                if 2 <= len(title) <= 20:
-                    words.add(title)
-                for token in re.split(r"[与和及/（）()、,，\s]+", title):
-                    if len(token) >= 2 and re.search(r"[\u4e00-\u9fff]", token):
-                        words.add(token)
-    except Exception:
-        pass
-    cleaned = sorted({w for w in words if len(w) >= 2 and len(w) <= 20})
-    _KB_KEYWORDS, _KB_KEYWORDS_STAMP = cleaned, now
-    return _KB_KEYWORDS
-
-
-def select_tools_for(question: str, task_type: str | None = None) -> tuple[list, dict]:
-    """上下文工程：按任务阶段挑选本轮要注册的工具，返回 (工具对象列表, 报告)。
-
-    工具不是越多越好——26 个工具全量注册时，模型既要消化大量 schema，还容易"选择困难"。
-    这里按问题意图只注册用得上的那一组（核心工具永远保留），通常能省下三到五成工具上下文；
-    出错或无法判断时**返回全量**，宁可多给也不给漏。
-    """
-    if not context.enabled():
-        return list(TOOLS), {"groups": [], "kept": len(TOOLS), "dropped": 0, "reduction": 0.0}
-    try:
-        names, report = context.select_tools(
-            question, task_type=task_type, available=[tool.name for tool in TOOLS],
-            knowledge_keywords=knowledge_keywords())
-        if not names:
-            return list(TOOLS), {"groups": [], "kept": len(TOOLS), "dropped": 0, "reduction": 0.0}
-        subset = [tool for tool in TOOLS if tool.name in set(names)]
-        return subset, report
-    except Exception:
-        return list(TOOLS), {"groups": [], "kept": len(TOOLS), "dropped": 0, "reduction": 0.0}
+        parts.append(_plan_system_hint(plan))
+    return "\n\n".join(parts)
 
 
 # 手写 ReAct 循环（流式输出用）的常量
@@ -2422,11 +1986,6 @@ TOOL_LABELS = {
     "plot_last_result": "正在画图",
     "list_forecast_metrics": "正在看有哪些指标能预测",
     "forecast_metric": "正在跑预测模型",
-    "run_python": "正在用 Python 计算",
-    "analyze_data": "正在做统计分析",
-    "detect_data_anomalies": "正在检测异常数据",
-    "cluster_data": "正在做聚类分群",
-    "query_table_python": "正在用 Python 分析表格",
     "search_knowledge": "正在翻知识库文档",
     "remember": "正在把这件事记下来",
     "recall": "正在回忆你之前说过的事",
@@ -2764,12 +2323,6 @@ def _chunk_snippet(text: str, limit: int = 220) -> str:
 # 这样命令行 --plan、测试脚本或临时改环境变量都能立刻生效，不用重新导入模块。
 PLAN_REUSE_CUES = ("继续", "接着", "下一步", "按计划", "继续执行", "还没做", "剩下的")
 
-# 最近一次用到的表格库表名（供 query_table_python 在没显式传表名时接着用）
-_LAST_TABLE: dict[str, str] = {}
-
-# 最近一次「树状搜索」的候选路线与评分（由 create_task_plan 写入，stream_ask 渲染进提示词）
-_REASON_TRAIL: dict[str, "reasoning.Trail"] = {}
-
 
 def plan_mode() -> str:
     """当前规划模式：auto / always / off（非法值一律按 auto）。"""
@@ -2802,26 +2355,16 @@ def plan_tool_hint() -> str:
 
 
 def create_task_plan(goal: str, context: str = "") -> "planning.Plan | None":
-    """调用规划器把目标拆成执行计划；失败返回 None（整条链路自动降级为「不规划」）。
-
-    复杂任务（planning.needs_plan 判定）会走 core/reasoning 的树状搜索：
-    ToT 多路径探索或 MCTS 规划搜索，并把候选路线的评分记到 _REASON_TRAIL 里，
-    由 stream_ask 渲染成「推理路径」注入提示词；任何异常都退回单条计划。
-    """
-    try:
-        complex_task = bool(planning.needs_plan(goal)[0])
-        plan, trail = reasoning.plan_with_strategy(
-            _llm_complete, goal, tools_hint=plan_tool_hint(), context=context,
-            strategy=None, base_steps=plan_max_steps(), complex_task=complex_task,
-        )
-        if trail is not None and trail.events:
-            _REASON_TRAIL["last"] = trail
-        if plan is not None:
-            plan.source = "auto"
-        return plan
-    except Exception:
-        return planning.make_plan(_llm_complete, goal, tools_hint=plan_tool_hint(),
-                                  max_steps=plan_max_steps(), context=context)
+    """调用规划器把目标拆成执行计划；失败返回 None（整条链路自动降级为「不规划」）。"""
+    plan = planning.make_plan(
+        _llm_complete, goal,
+        tools_hint=plan_tool_hint(),
+        max_steps=plan_max_steps(),
+        context=context,
+    )
+    if plan is not None:
+        plan.source = "auto"
+    return plan
 
 
 def should_reuse_plan(question: str) -> bool:
@@ -3243,40 +2786,17 @@ def smart_search(query: str) -> str:
     """search_knowledge 工具的智能检索入口：多路召回 + RRF 融合（可选 + LLM 重排）。
 
     统一走 retrieve() 拿结构化片段：既能沿用旧文案，又能把出处登记成数据来源。
-
-    检索上下文管线（core/context）：
-      查询改写 → 扩大候选池多路召回 → **查询词覆盖率重排** → **同源限流**
-      → 相关性阈值过滤（全部太低就是"证据不足"，不硬凑）
-      → 来源标注（路径/段落/页码/更新时间/相关度）→ 按段落裁剪到 CTX_SNIPPET
     """
-    # ① 查询改写：口语提问里的寒暄、口水词会直接影响相似度，先洗掉
-    search_query = context.rewrite_query(query) if context.enabled() else query
-    # ② 先多召回一些：**单个来源限流**（context.diversify）需要有富余候选才起作用
-    #    ——否则知识库里的大文档会靠篇幅包揽名额，把真正命中的小文档挤出去
-    pool = max(RAG_TOP_K * 4, 12) if context.enabled() else None
     if not _env_flag("RAG_RERANK"):
-        docs, engines_label = rag_service.retrieve(search_query, k=pool or RAG_TOP_K, mode="smart")
+        docs, engines_label = rag_service.retrieve(query, k=RAG_TOP_K, mode="smart")
+        text = _knowledge_text(docs, engines_label)
     else:
-        docs, engines_label = rag_service.retrieve(
-            search_query, k=max(pool or RAG_PER_LIST, RAG_PER_LIST), mode="smart")
+        docs, engines_label = rag_service.retrieve(query, k=RAG_PER_LIST, mode="smart")
         if docs:
-            reranked, ok = _rerank_by_llm(search_query, docs, RAG_TOP_K)
+            reranked, ok = _rerank_by_llm(query, docs, RAG_TOP_K)
             if ok:
                 engines_label += " → LLM 相关度重排"
                 docs = reranked
-    if context.enabled():
-        # ③ 查询词覆盖率重排：单纯的融合排名会被大文档的"高频词刷榜"压过去，这里补一维
-        docs = context.rerank_by_coverage(docs, search_query)
-        # ④ 同源限流：同一来源最多占一半名额，别让一篇大文档包揽全部 Top-K
-        docs = context.diversify(docs, limit=RAG_TOP_K,
-                                 max_per_source=max(1, -(-RAG_TOP_K // 2)))
-    # ②③④ 阈值过滤 + 来源标注 + 长度裁剪（关 CTX 时保持原样输出）
-    if docs and context.enabled():
-        text = context.build_retrieved_context(docs, engines_label, query=search_query)
-        if "所有候选片段的相关度" in text:      # 全部未过阈值：按旧口径给"没查到"
-            docs = []
-            text = _knowledge_text(docs, engines_label)
-    else:
         text = _knowledge_text(docs, engines_label)
     _record_knowledge_sources(docs)
     # 知识库原文里也可能带个人信息（人事通知、报销样例等），进模型上下文之前先脱敏
@@ -3769,10 +3289,7 @@ class ChatService:
             agent = self.agent
             # 本次问答的首选渠道：DeepSeek 若在失败冷却期，则 resolve 会自动落到 openai 备用
             provider = resolve_provider()
-            # 上下文工程：本轮**只注册用得上的工具**（schema 是工具上下文里最占地方的一块）
-            meter = context.Meter(label=str(thread_id))
-            subset, meter.notes["tools"] = select_tools_for(str(question or ""))
-            llm = build_llm(provider=provider, force=True).bind_tools(subset)
+            llm = build_llm(provider=provider, force=True).bind_tools(TOOLS)  # 与 create_agent 同样的工具绑定
             fallback_used = False  # 同一次问答只自动切换一次渠道，避免来回横跳
 
             def _round_text(llm_now):
@@ -3852,23 +3369,11 @@ class ChatService:
             spec = _understand_question(question, history)
 
             # ← Dynamic Prompt 每轮现渲染：叠加「当前时间 + 早期摘要 + 本轮计划 + 手动指定数据范围 + 查询理解」
-            tool_names_for_prompt = [tool.name for tool in subset]
-            system_text = build_system_prompt(summary=digest or None,
-                                              tools=tool_names_for_prompt)
-            system_text += ("\n\n" + hint if hint else "")
+            system_text = build_system_prompt(summary=digest or None) + ("\n\n" + hint if hint else "")
             if plan is not None:
                 system_text += "\n\n" + _plan_system_hint(plan)
             if spec:
                 system_text += "\n\n" + prompting.render(spec)
-            # 树状搜索的候选路线与评分（ToT / MCTS）：让模型知道有哪些备选路径可选
-            trail = _REASON_TRAIL.pop("last", None)
-            if trail is not None and len(trail.events) > 1:
-                system_text += "\n\n" + trail.render(limit=3)
-            # 上下文度量：把各层占多少记下来（关 CTX 时 Mirror 仍可统计，开销可忽略）
-            meter.record_layer("system", system_text)
-            meter.record_layer("history", "".join(getattr(m, "content", "") or ""
-                                                  for m in (history or [])))
-            meter.record_layer("input", str(question or ""))
             human = HumanMessage(content=question)
             messages = [*history, SystemMessage(content=system_text), human]
             persisted = [human]  # 只把“本回合新增”的消息写回 Checkpointer（避免重复）
@@ -3877,8 +3382,6 @@ class ChatService:
             tool_names: list[str] = []
             # 自检预算：只有“有计划的回合”才做自检，简单问题一次模型调用都不多花
             reflect_left = plan_max_reflect() if (plan is not None and plan_reflect_enabled()) else 0
-            # 本轮的反思记忆（Reflexion）：跨多次自检累积，第二次自检会带上第一次的建议
-            reflexion = reasoning.Reflexion(getattr(plan, "goal", "") or question)
 
             try:
                 with self._lock:
@@ -3903,7 +3406,7 @@ class ChatService:
                                 raise first_error or RuntimeError("模型调用失败")  # 无可切渠道或已切过一次
                             mark_provider_failed(provider)  # 标记失败进冷却，后续请求直接走备用
                             provider, fallback_used = backup, True
-                            llm = build_llm(provider=backup, force=True).bind_tools(subset)
+                            llm = build_llm(provider=backup, force=True).bind_tools(TOOLS)
                             pending = []
                             out = {}
                             yield from _consume(llm, pending, out)
@@ -3921,12 +3424,9 @@ class ChatService:
                             # ④ 终答轮：先让自检器核对「计划是否真的完成」，没完成就补一轮
                             if reflect_left > 0:
                                 reflect_left -= 1
-                                # Reflexion：带记忆的自检——历史建议会一并带过去，
-                                # 避免重复押同一个说法（同一个坑不踩第二次）
-                                decision = reflexion.call(
-                                    _llm_complete, plan,
+                                decision = planning.reflect(
+                                    _llm_complete, plan.goal, plan,
                                     answer="".join(pending), tool_names=tool_names,
-                                    round_no=plan_max_reflect() - reflect_left,
                                 )
                                 events, plan_snapshot = _apply_reflection(
                                     plan, decision, thread_id, plan_snapshot
@@ -3943,7 +3443,6 @@ class ChatService:
                                     # 自检意见只作为一次性提醒注入上下文，不写进历史（界面不会出现假的用户消息）
                                     messages.append(HumanMessage(content=(
                                         "【执行计划自检】" + instruction
-                                        + (("\n" + reflexion.render()) if len(reflexion.notes) > 1 else "")
                                         + "\n请继续完成剩余步骤，全部完成后再给出最终结果。"
                                     )))
                                     continue
@@ -3980,13 +3479,8 @@ class ChatService:
                                 )
                             try:
                                 result = tool.invoke(call.get("args") or {}) if tool else f"没有名为 {name} 的工具"
-                                ok = bool(tool) and not str(result).startswith("没有名为")
                             except Exception as exc:
                                 result = f"调用工具 {name} 失败：{exc}"
-                                ok = False
-                            # 上下文度量：工具调用质量（失败率 / 同参数重试率）
-                            meter.record_tool(name, call.get("args") or {}, ok)
-                            meter.record_layer("tool_result", str(result))
                             tool_message = ToolMessage(content=str(result), tool_call_id=call.get("id"))
                             messages.append(tool_message)
                             persisted.append(tool_message)
@@ -4013,9 +3507,6 @@ class ChatService:
                 return
 
             answer = sanitize.mask_text("".join(answer_parts))
-            meter.record_layer("output", answer)          # 上下文度量：本轮最终产出
-            meter.notes["prompt_report"] = build_system_prompt.last_report or {}
-            context.persist(meter.summary())              # CTX_STATS=1 时落盘，供跨版本对比
             # ⑤ 落盘：计划进度 + 本轮数据来源 → 会话元数据；消息历史已在上面写回 Checkpointer
             persist_plan(thread_id, plan)
             round_sources = take_sources()          # 本轮真正用到的数据出处（工具侧登记）

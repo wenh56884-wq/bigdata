@@ -15,9 +15,6 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 from core.agent import ChatService, db_skill_cards, delete_memory, list_memories, search_memories
 
 app = Flask(__name__)
-# 上传大小上限（要略大于单文件上限，留给 multipart 的开销）
-app.config["MAX_CONTENT_LENGTH"] = int(
-    float(os.getenv("UPLOAD_MAX_MB", "50")) * 1024 * 1024 * 1.2)
 service = ChatService()
 
 
@@ -128,88 +125,6 @@ def memory_delete(key):
     return jsonify({"deleted": key})
 
 
-# -------------------- 管理员上传：统一目录 + 落盘即解析 -------------------- #
-@app.get("/api/uploads")
-def upload_list():
-    """列出统一上传目录（data/uploads）里的文件。"""
-    try:
-        from services import table_memory, uploads
-        return jsonify({
-            "directory": str(uploads.directory()),
-            "files": uploads.list_files(),
-            "memory": table_memory.summary(),
-        })
-    except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
-
-
-@app.post("/api/uploads")
-def upload_create():
-    """管理员上传表格文件：存进统一目录 → **立即解析 → 写记忆 → 重建索引**。
-
-    multipart/form-data，字段名 file（可多文件重复该字段）。
-    若配置了 ADMIN_TOKEN，则需附带 ?token=xxx 或 X-Admin-Token 头。
-    """
-    token = (os.getenv("ADMIN_TOKEN") or "").strip()
-    if token:
-        given = (request.args.get("token") or request.headers.get("X-Admin-Token") or "").strip()
-        if given != token:
-            return jsonify({"error": "需要管理员令牌。"}), 401
-    files = request.files.getlist("file")
-    if not files:
-        return jsonify({"error": "没有收到文件（字段名应为 file）。"}), 400
-    try:
-        from services import uploads
-        saved, failed = [], []
-        for item in files:
-            try:
-                saved.append(uploads.save(item.filename or "", item.read()))
-            except Exception as exc:
-                failed.append({"name": item.filename, "error": str(exc)})
-        return jsonify({"saved": saved, "failed": failed}), 201
-    except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
-
-
-@app.delete("/api/uploads/<path:name>")
-def upload_delete(name):
-    """删除上传的文件（连带清记忆、重建索引）。"""
-    token = (os.getenv("ADMIN_TOKEN") or "").strip()
-    if token:
-        given = (request.args.get("token") or request.headers.get("X-Admin-Token") or "").strip()
-        if given != token:
-            return jsonify({"error": "需要管理员令牌。"}), 401
-    try:
-        from services import uploads
-        if not uploads.delete(name):
-            return jsonify({"error": "文件不存在。"}), 404
-        return jsonify({"deleted": name})
-    except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
-
-
-@app.get("/api/uploads/memory")
-def upload_memory():
-    """查看表格自动记忆（数据卡片 + 问答经验）的概况，便于管理员确认「学到了什么」。"""
-    try:
-        from services import table_memory
-        return jsonify(table_memory.summary())
-    except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
-
-
-@app.delete("/api/uploads/memory")
-def upload_memory_clear():
-    token = (os.getenv("ADMIN_TOKEN") or "").strip()
-    if token:
-        given = (request.args.get("token") or request.headers.get("X-Admin-Token") or "").strip()
-        if given != token:
-            return jsonify({"error": "需要管理员令牌。"}), 401
-    from services import table_memory
-    table_memory.clear()
-    return jsonify({"cleared": True})
-
-
 # ------------------------------ 对话问答 ------------------------------ #
 @app.post("/api/chat")
 def chat():
@@ -284,42 +199,6 @@ def deep_search():
         mimetype="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-# -------------------- API 路径的统一 JSON 错误兜底 --------------------
-# 为什么要有：前端把响应当 JSON 解析，Flask 默认的 404/413/500 是 HTML 错误页，
-# 前端会报「Unexpected token '<'」这种让人摸不着头脑的错。兜底成 JSON 后，
-# 前端能直接把原因（旧进程没重启 / 文件超限 / 服务内部错误）说清楚。
-def _json_error(status: int, message: str):
-    if request.path.startswith("/api/"):
-        return jsonify({"error": message}), status
-    return None                      # 非 API 路径走 Flask 默认错误页
-
-
-@app.errorhandler(404)
-def _not_found(_e):
-    hit = _json_error(404, "接口不存在。若刚更新过代码，请重启 python web.py。")
-    return hit if hit is not None else _e
-
-
-@app.errorhandler(405)
-def _bad_method(_e):
-    hit = _json_error(405, "请求方法不对（该路径不支持此方法）。")
-    return hit if hit is not None else _e
-
-
-@app.errorhandler(413)
-def _too_large(_e):
-    limit = app.config.get("MAX_CONTENT_LENGTH", 0)
-    hint = f"（上限约 {limit / 1024 / 1024:.0f} MB，可用 UPLOAD_MAX_MB 调整）" if limit else ""
-    hit = _json_error(413, f"上传内容超过大小上限{hint}。")
-    return hit if hit is not None else _e
-
-
-@app.errorhandler(500)
-def _server_error(_e):
-    hit = _json_error(500, "服务内部错误，详情见 web.py 的控制台输出。")
-    return hit if hit is not None else _e
 
 
 if __name__ == "__main__":
