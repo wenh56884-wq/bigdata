@@ -55,24 +55,24 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from services.rag import PER_LIST as RAG_PER_LIST
-from services.rag import TOP_K as RAG_TOP_K
-from services.rag import RagService
-from services.rag import tokenize as rag_tokenize  # 中文友好的分词（长期记忆按相关度召回时复用）
+from services.knowledge.rag import PER_LIST as RAG_PER_LIST
+from services.knowledge.rag import TOP_K as RAG_TOP_K
+from services.knowledge.rag import RagService
+from services.knowledge.rag import tokenize as rag_tokenize  # 中文友好的分词（长期记忆按相关度召回时复用）
 
-from core import planning  # 规划引擎：任务拆解 / 执行自检 / 深度搜索拆解（Planning 模块）
-from core import prompting  # 提示词工程：查询意图结构化理解（Query Understanding）+ SQL / 回答清单
-from core import reasoning  # 推理层：CoT / ToT 树状多路径 / MCTS 规划搜索 / Reflexion 反思记忆
-from core import context  # 上下文工程：提示分层合成 / 工具动态注册 / 检索上下文管线 / 上下文度量
-from services import tables  # 非结构化表格：把 非结构化数据/ 的 markdown/HTML 表格与 Excel/CSV 文件解析成可 SQL 查询的 SQLite
-from services import ml_forecast  # sklearn 月度业务指标预测（三个库）
-from services import sanitize  # 输出脱敏：结果集预处理 + 回答 / 流式文本兜底，避免个人信息出现在回答里
-from services import knowledge_learning  # 自动沉淀上传摘要与已完成问答，供后续知识检索使用
-from services.observability import langsmith_summary  # LangSmith 标准环境变量追踪的安全状态摘要
-from services import hitl  # 高风险工具必须经过人工审批
-from services import debugging  # 统一错误编号、脱敏日志与调试开关
-from services import pysandbox  # 受限 Python 计算沙箱：给 Agent 一个「用 Python 算」的能力
-from services import ml_insight  # 数据洞察：统计画像 / 相关分析 / 异常检测 / 聚类挖掘
+from core.cognition import planning  # 规划引擎：任务拆解 / 执行自检 / 深度搜索拆解（Planning 模块）
+from core.cognition import prompting  # 提示词工程：查询意图结构化理解（Query Understanding）+ SQL / 回答清单
+from core.cognition import reasoning  # 推理层：CoT / ToT 树状多路径 / MCTS 规划搜索 / Reflexion 反思记忆
+from core.cognition import context  # 上下文工程：提示分层合成 / 工具动态注册 / 检索上下文管线 / 上下文度量
+from services.datasource import tables  # 非结构化表格：把 非结构化数据/ 的 markdown/HTML 表格与 Excel/CSV 文件解析成可 SQL 查询的 SQLite
+from services.analytics import ml_forecast  # sklearn 月度业务指标预测（三个库）
+from services.ops import sanitize  # 输出脱敏：结果集预处理 + 回答 / 流式文本兜底，避免个人信息出现在回答里
+from services.knowledge import knowledge_learning  # 自动沉淀上传摘要与已完成问答，供后续知识检索使用
+from services.ops.observability import langsmith_summary  # LangSmith 标准环境变量追踪的安全状态摘要
+from services.ops import hitl  # 高风险工具必须经过人工审批
+from services.ops import debugging  # 统一错误编号、脱敏日志与调试开关
+from services.analytics import pysandbox  # 受限 Python 计算沙箱：给 Agent 一个「用 Python 算」的能力
+from services.analytics import ml_insight  # 数据洞察：统计画像 / 相关分析 / 异常检测 / 聚类挖掘
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -554,7 +554,7 @@ def plot_last_result(title: str = "", x_col: str = "", y_cols: str = "") -> str:
         return reason
 
     try:
-        from services import viz
+        from services.analytics import viz
     except ImportError:
         return "可视化不可用：缺少 matplotlib，请先执行 pip install matplotlib。"
 
@@ -1402,7 +1402,7 @@ def query_table_python(code: str, table: str = "", question: str = "") -> str:
     规则：不允许 import / open / while；列名照抄 describe_table 返回的列名（中文列名可直接用）。
     """
     try:
-        from services import uploads
+        from services.datasource import uploads
         frame, used = uploads.load_dataframe(table or _LAST_TABLE.get("name", ""))
     except Exception as exc:
         return (f"取表失败：{exc}\n先用 find_table 召回候选表（它会告诉你表名与列名），"
@@ -1434,7 +1434,7 @@ def query_table_python(code: str, table: str = "", question: str = "") -> str:
     # 自动学习：把「问题 → 代码」记下来，下次遇到相似问题直接复用
     if question or code:
         try:
-            from services import table_memory
+            from services.datasource import table_memory
             table_memory.remember_query(question or "(未注明问题)", code, table=used)
         except Exception:
             pass
@@ -1693,7 +1693,7 @@ def tables_summary() -> dict:
     try:
         info = tables.stats()
         if not info.get("ok"):
-            return {"ok": False, "error": "索引未建立（首次使用或运行 python tables.py --build）"}
+            return {"ok": False, "error": "索引未建立（首次使用或运行 python -m services.datasource.tables --build）"}
         return {
             "ok": True,
             "tables": info.get("tables"),
@@ -2061,7 +2061,7 @@ def find_table(question: str, dataset: str = "", limit: int = 5, keywords: str =
     _LAST_TABLE["name"] = hits[0]["table"]
     # 自动记忆：① 以前这类问题是怎么查的 ② 上传文件时自动生成的「数据卡片」
     try:
-        from services import table_memory
+        from services.datasource import table_memory
         recalled = table_memory.recall_text(question)
         if recalled:
             lines.append(recalled)
@@ -2492,7 +2492,7 @@ def select_tools_for(question: str, task_type: str | None = None) -> tuple[list,
 def _uploaded_file_names() -> list[str]:
     """返回已上传的表格文件名；失败时静默降级，不妨碍普通问答。"""
     try:
-        from services import uploads
+        from services.datasource import uploads
         return [str(item.get("name")) for item in uploads.list_files()
                 if item.get("kind") == "table" and item.get("name")]
     except Exception:
@@ -2502,7 +2502,7 @@ def _uploaded_file_names() -> list[str]:
 def _uploaded_document_names() -> list[str]:
     """返回已上传的文档和图片名，供资料检索路由使用。"""
     try:
-        from services import uploads
+        from services.datasource import uploads
         return [str(item.get("name")) for item in uploads.list_files()
                 if item.get("kind") in {"document", "image"} and item.get("name")]
     except Exception:

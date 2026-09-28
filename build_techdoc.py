@@ -194,7 +194,8 @@ def collect_facts() -> dict:
 
     # ① 工具清单 + 所属分组
     try:
-        from core import agent, context
+        from core import agent
+        from core.cognition import context
         group_of: dict[str, str] = {}
         for group, names in dict(context.TOOL_GROUPS).items():
             for name in names:
@@ -216,7 +217,7 @@ def collect_facts() -> dict:
 
     # ② 向量库规模
     try:
-        from services import vectordb
+        from services.knowledge import vectordb
         stats = vectordb.get_store().stats()
         facts["vdb"] = stats
     except Exception as exc:
@@ -763,7 +764,7 @@ def body_blocks():
     rows += [
         ["答非所问或乱猜", "先看知识库是否命中：命中不足会返回「证据不足」。必要时放宽 CTX_MIN_SCORE 或补充文档"],
         ["感觉变慢", "REASON_MODE=react 或 TOT_DEPTH=1 关闭树搜索；CTX=0 可做 A/B 对照"],
-        ["向量库报维度/后端不一致", "换过 VECTOR_BACKEND 或 VECTOR_DIM 后需 python services/rag.py --rebuild 重建"],
+        ["向量库报维度/后端不一致", "换过 VECTOR_BACKEND 或 VECTOR_DIM 后需 python -m services.knowledge.rag --rebuild 重建"],
         ["工具明明写了却没被调用", "检查是否已登记 TOOL_BRIEF / TOOL_GROUPS，动态注册会裁掉未登记的工具"],
         ["改了代码没生效", "Python 侧改动需重启 python web.py；纯前端改动刷新页面即可"],
         ["想拿到一次性完整结果", "用 ChatService.ask()，或把 NDJSON 里的 token 事件拼接起来"],

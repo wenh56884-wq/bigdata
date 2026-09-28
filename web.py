@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from core.agent import ChatService, db_skill_cards, delete_memory, list_memories, search_memories
-from services import hitl, debugging
+from services.ops import hitl, debugging
 
 app = Flask(__name__)
 # 上传大小上限（要略大于单文件上限，留给 multipart 的开销）
@@ -152,7 +152,7 @@ def approval_decide(approval_id):
 def upload_list():
     """列出统一上传目录（data/uploads）里的文件。"""
     try:
-        from services import table_memory, uploads
+        from services.datasource import table_memory, uploads
         return jsonify({
             "directory": str(uploads.directory()),
             "files": uploads.list_files(),
@@ -178,7 +178,7 @@ def upload_create():
     if not files:
         return jsonify({"error": "没有收到文件（字段名应为 file）。"}), 400
     try:
-        from services import uploads
+        from services.datasource import uploads
         saved, failed = [], []
         for item in files:
             try:
@@ -194,7 +194,7 @@ def upload_create():
 def upload_preview(name):
     """查看上传后的实际内容：表格行列、文档正文或图片 OCR 文本。"""
     try:
-        from services import uploads
+        from services.datasource import uploads
         return jsonify(uploads.preview(name))
     except FileNotFoundError:
         return jsonify({"error": "文件不存在。"}), 404
@@ -206,7 +206,7 @@ def upload_preview(name):
 def upload_image_content(name):
     """仅以内联方式返回已上传图片，供资料预览弹窗展示原图。"""
     try:
-        from services import uploads
+        from services.datasource import uploads
         target = uploads.image_file(name)
         if not target:
             return jsonify({"error": "图片不存在。"}), 404
@@ -226,7 +226,7 @@ def upload_delete(name):
         if given != token:
             return jsonify({"error": "需要管理员令牌。"}), 401
     try:
-        from services import uploads
+        from services.datasource import uploads
         if not uploads.delete(name):
             return jsonify({"error": "文件不存在。"}), 404
         return jsonify({"deleted": name})
@@ -238,7 +238,7 @@ def upload_delete(name):
 def upload_memory():
     """查看表格自动记忆（数据卡片 + 问答经验）的概况，便于管理员确认「学到了什么」。"""
     try:
-        from services import table_memory
+        from services.datasource import table_memory
         return jsonify(table_memory.summary())
     except Exception as exc:
         return jsonify(debugging.error_payload(exc, context="upload_memory")), 500
@@ -251,7 +251,7 @@ def upload_memory_clear():
         given = (request.args.get("token") or request.headers.get("X-Admin-Token") or "").strip()
         if given != token:
             return jsonify({"error": "需要管理员令牌。"}), 401
-    from services import table_memory
+    from services.datasource import table_memory
     table_memory.clear()
     return jsonify({"cleared": True})
 

@@ -17,7 +17,7 @@ import os
 import shutil
 import sys
 
-from services.ml_forecast import (
+from services.analytics.ml_forecast import (
     METRIC_CATALOG,
     _db_default_metric,
     list_metrics_text,
