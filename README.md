@@ -20,6 +20,9 @@
 以及基于 **Checkpointer 的多会话（多重对话）记忆**：每个会话一个 `thread_id`，
 上下文互相隔离，切换回来还能接着聊，历史落盘到 SQLite 后重启也不丢。
 
+以及显式的 **LangChain `AgentState` 状态管理**：在框架默认 `messages` 状态之上，
+工作台额外持久化本轮执行计划、数据来源和更新时间，随 LangGraph Checkpointer 一起恢复。
+
 以及基于 **Sklearn 的机器学习预测**：把三个业务库的历史数据按自然月聚合后，
 用 sklearn 多模型自动选优、递归预测未来 N 个月并生成 Markdown 预测报告，
 既能聊天触发也能独立脚本运行（详见 [4.3 Sklearn 机器学习预测](#43-sklearn-机器学习预测)）。
@@ -88,6 +91,24 @@ MAX_RETRIES=1        # 失败重试次数
 > ⚠️ **安全**：`.env` 已在 `.gitignore` 中，**务必不要**把它提交到版本控制。
 > 密钥一旦泄露（比如贴到聊天记录里），请立刻去服务商后台吊销并重新生成。
 
+### LangSmith 可观测性
+
+已集成 LangSmith 的标准 LangChain / LangGraph 追踪。启用后可以在 LangSmith 中查看每次
+模型调用、Agent 规划、工具调用、耗时和失败原因，便于定位回答偏差或性能问题。
+
+默认关闭，不配置 `LANGSMITH_API_KEY` 时不会发送任何追踪数据。需要排障时在 `.env` 中配置：
+
+```env
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_pt_你的密钥
+LANGSMITH_PROJECT=九天梧桐AI工作台-开发
+LANGSMITH_TRACING_SAMPLING_RATE=1.0
+```
+
+生产环境建议保留追踪开关、降低采样率，例如 `LANGSMITH_TRACING_SAMPLING_RATE=0.1`（10%）
+或 `0.01`（1%）；只在排障期间临时调为 `1.0`。重启服务后生效。`GET /api/health` 的
+`observability.langsmith` 字段会显示开关、项目名、采样率和 API Key 是否已配置，但不会泄露密钥。
+
 ### 切换到其它兼容服务
 
 只要服务端支持 OpenAI Chat Completions 协议，就配 `LLM_PROVIDER=openai` 后改 `BASE_URL`：
@@ -154,7 +175,7 @@ AI 的回答采用 **流式输出（打字机效果）**：`/api/chat` 返回 ND
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/health` | 健康检查：Checkpointer 后端（`sqlite` / `memory`）、知识库 `rag`、数据库 `database`、长期记忆 `store`、`planning`（规划模式与参数）、`memory`（三层记忆与压缩开关）、`tables`（非结构化表格库规模） |
+| GET | `/api/health` | 健康检查：Checkpointer 后端（`sqlite` / `memory`）、知识库 `rag`、数据库 `database`、长期记忆 `store`、`planning`（规划模式与参数）、`memory`（三层记忆与压缩开关）、`tables`（非结构化表格库规模）、`observability.langsmith`（LangSmith 追踪状态） |
 | GET | `/api/conversations` | 会话列表（按更新时间倒序） |
 | POST | `/api/conversations` | 新建会话，body 可选 `{ "title": "..." }` |
 | GET | `/api/conversations/<id>/messages` | 某会话的完整历史 **+ 该会话最近的执行计划 `plan` + 最近一轮的数据来源 `sources`**（刷新页面后计划面板、数据来源照常显示） |
@@ -206,6 +227,13 @@ AI 的回答采用 **流式输出（打字机效果）**：`/api/chat` 返回 ND
 - **持久化**：默认 `SqliteSaver`（`data/checkpoints.sqlite3`），依赖缺失时自动退回 `MemorySaver`。
 - **元数据**：标题 / 时间 / 消息数存在 `data/conversations.json`，避免为列目录加载全部消息。
 - **删除**：`checkpointer.delete_thread(thread_id)` 清掉该会话的所有检查点。
+
+### AgentState 状态管理
+
+`core/agent.py` 定义了 `WorkspaceAgentState(AgentState)` 并传给 `create_agent`。
+它保留 LangChain 对 `messages` 的累加规则，并将 `plan`、`sources`、`updated_at`
+持久化到同一个 LangGraph Checkpointer。会话目录中的计划与来源元数据继续保留，
+用于兼容页面读取和历史数据；两处会在每个成功完成的问答结束时同步更新。
 
 ```python
 from agent import ChatService

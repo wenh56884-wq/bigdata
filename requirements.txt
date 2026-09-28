@@ -3,6 +3,7 @@ langchain-openai>=0.2.0
 pypdf>=4.0.0
 langgraph>=1.0.0
 langgraph-checkpoint-sqlite>=2.0.0
+langsmith>=0.14.0        # Agent / 工具调用链路追踪（默认关闭，通过 LANGSMITH_TRACING 启用）
 python-dotenv>=1.0.0
 flask>=3.0.0
 pymysql>=1.1.0

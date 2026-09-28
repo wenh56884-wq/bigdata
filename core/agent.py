@@ -46,9 +46,11 @@ import uuid
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
+from typing import NotRequired
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
+from langchain.agents.middleware import AgentState
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -66,6 +68,7 @@ from services import tables  # 非结构化表格：把 非结构化数据/ 的 
 from services import ml_forecast  # sklearn 月度业务指标预测（三个库）
 from services import sanitize  # 输出脱敏：结果集预处理 + 回答 / 流式文本兜底，避免个人信息出现在回答里
 from services import knowledge_learning  # 自动沉淀上传摘要与已完成问答，供后续知识检索使用
+from services.observability import langsmith_summary  # LangSmith 标准环境变量追踪的安全状态摘要
 from services import pysandbox  # 受限 Python 计算沙箱：给 Agent 一个「用 Python 算」的能力
 from services import ml_insight  # 数据洞察：统计画像 / 相关分析 / 异常检测 / 聚类挖掘
 
@@ -80,6 +83,19 @@ TITLE_MAX_LEN = 20
 
 # 全局共享的知识库服务（knowledge/ 目录，懒构建索引）
 rag_service = RagService()
+
+
+class WorkspaceAgentState(AgentState):
+    """工作台的持久化 Agent 状态。
+
+    继承 LangChain 的 AgentState，因此 ``messages`` 仍使用框架的 add_messages
+    reducer；附加字段随 LangGraph Checkpointer 与会话消息一同持久化，避免计划和
+    来源只存在于进程内的临时变量里。
+    """
+
+    plan: NotRequired[dict | None]
+    sources: NotRequired[list[dict]]
+    updated_at: NotRequired[str]
 
 
 def _remember_qa_safely(question: str, answer: str, thread_id: str) -> None:
@@ -2687,6 +2703,7 @@ def build_agent(checkpointer=None):
         model=build_llm(),
         tools=TOOLS,
         system_prompt=build_system_prompt(),
+        state_schema=WorkspaceAgentState,
         checkpointer=checkpointer,
         store=get_store()[0],  # 挂载跨会话 Store（长期记忆）
     )
@@ -3766,6 +3783,7 @@ class ChatService:
                         model=build_llm(),
                         tools=TOOLS,
                         system_prompt=build_system_prompt(),
+                        state_schema=WorkspaceAgentState,
                         checkpointer=checkpointer,
                         store=get_store()[0],  # 同一个 Store 实例，跨会话共享
                     )
@@ -3788,6 +3806,7 @@ class ChatService:
             "planning": planning_summary(),
             "memory": memory_summary(),
             "tables": tables_summary(),
+            "observability": {"langsmith": langsmith_summary()},
         }
 
     # -- 会话管理 ----------------------------------------------------------- #
@@ -4149,6 +4168,12 @@ class ChatService:
             # ⑤ 落盘：计划进度 + 本轮数据来源 → 会话元数据；消息历史已在上面写回 Checkpointer
             persist_plan(thread_id, plan)
             round_sources = take_sources()          # 本轮真正用到的数据出处（工具侧登记）
+            # 同步进 LangGraph AgentState；恢复 checkpoint 时可以拿到完整回合状态。
+            agent.update_state(config, {
+                "plan": plan.to_dict() if plan is not None else None,
+                "sources": round_sources,
+                "updated_at": _now(),
+            })
             messages_now = self.history(thread_id)
             patch = {"updated_at": _now(), "message_count": len(messages_now), "sources": round_sources}
             info = self.store.get(thread_id) or {}
@@ -4207,6 +4232,11 @@ class ChatService:
             messages_now = self.history(thread_id)
             # 深度搜索同样是一次完整问答，统一进入自动学习知识库。
             _remember_qa_safely(question, answer, thread_id)
+            agent.update_state(config, {
+                "plan": None,
+                "sources": sources,
+                "updated_at": _now(),
+            })
             # 深度搜索的 sources 是知识库证据片段，同样落盘，刷新页面还能看到出处
             patch = {"updated_at": _now(), "message_count": len(messages_now), "sources": sources}
             info = self.store.get(thread_id) or {}
