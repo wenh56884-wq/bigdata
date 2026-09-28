@@ -1098,7 +1098,10 @@ def questions(dataset: str = "", limit: int = 10) -> list[dict]:
     keys = [key] if key else list(DATASETS)
     out = []
     for item in keys:
-        path = TABLE_DATA_DIR / DATASETS[item]["task"]
+        meta = DATASETS.get(item)
+        if not meta:                 # files 数据集未注册时（目录里没有表格文件）直接跳过
+            continue
+        path = TABLE_DATA_DIR / meta["task"]
         if not path.exists():
             continue
         try:
@@ -1292,11 +1295,15 @@ def main() -> None:
             print(f"  {item['key']:<12} {item['title']:<32} {item['tables']:>4} 张表 / "
                   f"{item['rows']:>6} 行（HTML {item['html_tables']}）  {item['desc']}")
     if args.stats or (not any([args.sets, args.find, args.info, args.sql, args.questions is not None])):
+        _register_file_dataset()                 # 索引里可能记着 files 数据集，先把标题注册上再查
         info.setdefault("db_bytes", DB_PATH.stat().st_size if DB_PATH.exists() else 0)
         print(f"总计：{info.get('tables')} 张表 / {info.get('rows')} 行；"
               f"索引 {info.get('db_bytes', 0)/1024/1024:.1f} MB；建于 {info.get('built_at')}")
         for key, row in (info.get("datasets") or {}).items():
-            print(f"  {DATASETS[key]['title']}：{row['tables']} 张表 / {row['rows']} 行"
+            # 统计是历史落盘的：文件后来被删掉时这里仍会有已注销的数据集，故按 key 兜底
+            title = ((DATASETS.get(key) or {}).get("title")
+                     or (FILE_DATASET_TITLE if key == FILE_DATASET_KEY else key))
+            print(f"  {title}：{row['tables']} 张表 / {row['rows']} 行"
                   f"（HTML {row['html_tables']}，跳过空块 {row['skipped_blocks']}）")
     if args.find:
         for item in find_tables(args.find, limit=args.limit):
