@@ -776,6 +776,136 @@
       .ds-item.k-forecast  { --ds-c: var(--ds-ml);    --ds-c-bg: var(--ds-ml-bg); }
       .ds-item.k-chart     { --ds-c: var(--ds-chart); --ds-c-bg: var(--ds-chart-bg); }
 
+      /* ---------- 来源详情抽屉（点击出处卡片 → 右侧弹出，仿搜索结果面板） ---------- */
+      .src-drawer-mask {
+        position: fixed; inset: 0; background: rgba(15, 18, 34, .32);
+        opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 90;
+      }
+      .src-drawer-mask.show { opacity: 1; pointer-events: auto; }
+      .src-drawer {
+        position: fixed; top: 0; right: 0; bottom: 0; width: 400px; max-width: 94vw;
+        display: flex; flex-direction: column;
+        background: var(--panel-2); border-left: 1px solid var(--line-2);
+        box-shadow: -18px 0 48px rgba(15, 18, 34, .18);
+        transform: translateX(105%); transition: transform .24s cubic-bezier(.2, .7, .3, 1);
+        z-index: 91;
+      }
+      .src-drawer.open { transform: translateX(0); }
+      .src-drawer .sd-head {
+        display: flex; align-items: flex-start; gap: 10px;
+        padding: 14px 14px 12px 16px; border-bottom: 1px solid var(--line);
+      }
+      .src-drawer .sd-head .ds-badge { margin-top: 1px; }
+      .src-drawer .sd-title { flex: 1; min-width: 0; }
+      .src-drawer .sd-title b { display: block; color: var(--ink); font-size: 14.5px; line-height: 1.45; word-break: break-all; }
+      .src-drawer .sd-title small { display: block; color: var(--muted-2); font-size: 11.5px; margin-top: 2px; word-break: break-all; }
+      .src-drawer .sd-close {
+        flex: none; width: 28px; height: 28px; border: 0; border-radius: 8px;
+        background: transparent; color: var(--muted); cursor: pointer;
+        display: grid; place-items: center; transition: background .15s, color .15s;
+      }
+      .src-drawer .sd-close:hover { background: var(--chip-hover); color: var(--ink); }
+      .src-drawer .sd-body {
+        flex: 1; overflow-y: auto; padding: 14px 16px 22px;
+        display: grid; gap: 11px; align-content: start;
+      }
+      .src-drawer .sd-sec {
+        border: 1px solid var(--line); border-radius: 10px;
+        background: var(--panel); padding: 10px 12px;
+      }
+      .src-drawer .sd-label {
+        color: var(--muted-2); font-size: 11px; letter-spacing: .05em; margin-bottom: 7px;
+      }
+      .src-drawer .sd-kv { display: grid; grid-template-columns: 74px 1fr; gap: 5px 10px; font-size: 12.5px; margin: 0; }
+      .src-drawer .sd-kv dt { color: var(--muted-2); }
+      .src-drawer .sd-kv dd { margin: 0; color: var(--ink); word-break: break-all; }
+      .src-drawer .sd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .src-drawer .sd-chip {
+        color: var(--ds-c, var(--accent)); background: var(--ds-c-bg, var(--chip-hover));
+        border-radius: 6px; padding: 2px 8px; font-size: 12px;
+        font-family: Consolas, Menlo, monospace; word-break: break-all;
+      }
+      .src-drawer .sd-text { color: var(--ink); font-size: 12.5px; line-height: 1.75; word-break: break-all; }
+      .src-drawer pre.sd-sql {
+        margin: 0; padding: 10px 12px; border-radius: 8px;
+        background: var(--th-bg); color: var(--muted);
+        font-family: Consolas, Menlo, monospace; font-size: 11.5px; line-height: 1.65;
+        white-space: pre-wrap; word-break: break-all;
+      }
+      /* 可点击暗示：悬停出现「查看详情」箭头 */
+      .ds-item { cursor: pointer; }
+      .ds-item .ds-more {
+        position: absolute; right: 9px; top: 9px; color: var(--muted-2);
+        opacity: 0; transition: opacity .15s, transform .15s;
+      }
+      .ds-item:hover .ds-more { opacity: 1; transform: translateX(2px); }
+
+      @media (max-width: 760px) {
+        .src-drawer { width: 100vw; max-width: 100vw; }
+      }
+
+      /* ---------- 管理员上传面板（统一目录 data/uploads） ---------- */
+      .up-mask {
+        position: fixed; inset: 0; background: rgba(15, 18, 34, .38);
+        opacity: 0; pointer-events: none; transition: opacity .18s; z-index: 80;
+      }
+      .up-mask.show { opacity: 1; pointer-events: auto; }
+      .up-panel {
+        position: fixed; top: 0; right: 0; bottom: 0; width: 380px; max-width: 94vw;
+        display: flex; flex-direction: column; background: var(--panel-2);
+        border-left: 1px solid var(--line-2); box-shadow: -18px 0 48px rgba(15, 18, 34, .18);
+        transform: translateX(105%); transition: transform .24s cubic-bezier(.2, .7, .3, 1);
+        z-index: 81;
+      }
+      .up-panel.open { transform: translateX(0); }
+      .up-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 13px 14px; border-bottom: 1px solid var(--line);
+      }
+      .up-head b { font-size: 14px; color: var(--ink); }
+      .up-close {
+        border: 0; background: transparent; color: var(--muted); font-size: 18px;
+        cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 6px;
+      }
+      .up-close:hover { background: var(--chip-hover); color: var(--ink); }
+      .up-body { flex: 1; overflow-y: auto; padding: 12px 14px 20px; display: grid; gap: 10px; align-content: start; }
+      .up-drop {
+        border: 1.5px dashed var(--line-2); border-radius: 12px; padding: 16px 12px;
+        text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+      }
+      .up-drop:hover, .up-drop.over { border-color: var(--accent); background: var(--chip-hover); }
+      .up-drop-in { display: grid; gap: 5px; justify-items: center; color: var(--muted); }
+      .up-drop-in span { color: var(--ink); font-size: 13px; }
+      .up-drop-in small { color: var(--muted-2); font-size: 11.5px; line-height: 1.5; }
+      .up-token input {
+        width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px;
+        border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+        color: var(--ink);
+      }
+      .up-list { display: grid; gap: 7px; }
+      .up-item {
+        display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+        border: 1px solid var(--line); border-radius: 9px; background: var(--panel);
+      }
+      .up-item .up-meta { flex: 1; min-width: 0; }
+      .up-item .up-name { font-size: 12.5px; color: var(--ink); word-break: break-all; }
+      .up-item .up-sub { font-size: 11px; color: var(--muted-2); margin-top: 2px; }
+      .up-item .up-del {
+        flex: none; border: 0; background: transparent; color: var(--muted);
+        cursor: pointer; font-size: 12px; padding: 3px 6px; border-radius: 6px;
+      }
+      .up-item .up-del:hover { background: var(--chip-hover); color: #d64545; }
+      .up-empty { color: var(--muted-2); font-size: 12px; padding: 6px 2px; }
+      .up-mem {
+        font-size: 11.5px; color: var(--muted); line-height: 1.7;
+        border-top: 1px solid var(--line); padding-top: 9px; word-break: break-all;
+      }
+      .up-toast {
+        position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+        background: var(--ink); color: #fff; padding: 8px 14px; border-radius: 9px;
+        font-size: 12.5px; z-index: 120; box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+      }
+
       @media (max-width: 760px) {
         .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
         .side { flex-direction: column; border-right: 0; border-bottom: 1px solid var(--line); padding: 10px 12px 8px; }
@@ -844,6 +974,31 @@
         <button class="icon-btn" id="theme-btn" type="button" title="切换深色 / 浅色模式"></button>
         <button class="head-btn" id="rename-btn" type="button">重命名</button>
         <button class="head-btn danger" id="delete-btn" type="button">删除</button>
+        <button class="head-btn" id="uploads-btn" type="button" title="管理员上传 Excel / CSV 到统一目录，落盘即自动解析并记住表结构">数据</button>
+      </div>
+
+      <!-- 管理员上传面板：统一目录 data/uploads，上传即自动解析 + 记忆 -->
+      <div class="up-mask" id="up-mask"></div>
+      <div class="up-panel" id="up-panel" aria-label="数据文件管理">
+        <div class="up-head">
+          <b>数据文件（统一目录）</b>
+          <button class="up-close" id="up-close" type="button" title="关闭">×</button>
+        </div>
+        <div class="up-body">
+          <div class="up-drop" id="up-drop">
+            <input type="file" id="up-file" multiple accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt" hidden>
+            <div class="up-drop-in">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+              <span>点击或把 Excel / CSV 拖到这里</span>
+              <small id="up-hint">上传后自动解析并记住表结构，用户马上就能问</small>
+            </div>
+          </div>
+          <div class="up-token" id="up-token-wrap">
+            <input id="up-token" type="password" placeholder="管理员令牌（后端未设置 ADMIN_TOKEN 时留空）" autocomplete="off">
+          </div>
+          <div class="up-list" id="up-list"></div>
+          <div class="up-mem" id="up-mem"></div>
+        </div>
       </div>
 
       <section id="messages" aria-live="polite">
@@ -1671,6 +1826,28 @@
         det.appendChild(pre);
         item.appendChild(det);
       }
+
+      // 点击整卡 → 右侧详情抽屉（类型 / 名称 / 位置 / 行数 / 表 / 说明 / SQL 一屏看全）
+      const detailRows = [
+        ['类型', SRC_TAGS[kind] || '引用'],
+        ['名称', title],
+      ];
+      if (sub) detailRows.push(['位置', sub]);
+      if (it.rows != null) {
+        const rn = Number(it.rows);
+        detailRows.push(['数据量', (isNaN(rn) ? it.rows : rn.toLocaleString('zh-CN')) + ' 行']);
+      }
+      if (it.label && it.label !== title) detailRows.push(['来源标识', it.label]);
+      attachSourceClick(item, {
+        kind: kind,
+        tag: SRC_TAGS[kind] || '引用',
+        title: title,
+        sub: sub,
+        rows: detailRows,
+        tables: kind === 'tables' ? [] : (it.tables || []),
+        notes: notes,
+        sql: it.sql || '',
+      });
       return item;
     }
 
@@ -1693,7 +1870,142 @@
       if (it.page) body.appendChild(el('span', 'ds-pill', 'PDF 第 ' + it.page + ' 页'));
       if (it.snippet) body.appendChild(el('span', 'ds-note', it.snippet));
       if (body.children.length) item.appendChild(body);
+      attachSourceClick(item, {
+        kind: 'knowledge',
+        tag: it.index != null ? '引用 [' + it.index + ']' : '引用',
+        title: parts.file || it.source || '知识库文档',
+        sub: parts.dir || '',
+        rows: [
+          ['类型', '知识库引用'],
+          ['文档', parts.file || it.source || ''],
+          ['位置', parts.dir || '（根目录）'],
+        ],
+        pills: [
+          it.chunk_index != null ? '第 ' + it.chunk_index + ' 段' : '',
+          it.page ? 'PDF 第 ' + it.page + ' 页' : '',
+        ].filter(Boolean),
+        snippet: it.snippet || '',
+      });
       return item;
+    }
+
+    /* ---------------- 来源详情抽屉（点出处卡片 → 右侧滑出，仿搜索结果面板） ---------------- */
+    let _srcDrawer = null, _srcMask = null;
+    // kind → 主题变量后缀（database→--ds-db …），doc 类引用沿用知识库的紫色
+    const SD_VAR = { database: 'db', tables: 'tab', knowledge: 'kb', forecast: 'ml', chart: 'chart' };
+
+    function ensureSrcDrawer() {
+      if (_srcDrawer) return _srcDrawer;
+      _srcMask = el('div', 'src-drawer-mask');
+      _srcMask.addEventListener('click', closeSrcDrawer);
+      _srcDrawer = el('aside', 'src-drawer');
+      _srcDrawer.setAttribute('aria-label', '数据来源详情');
+      document.body.appendChild(_srcMask);
+      document.body.appendChild(_srcDrawer);
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeSrcDrawer();
+      });
+      return _srcDrawer;
+    }
+
+    function closeSrcDrawer() {
+      if (!_srcDrawer) return;
+      _srcDrawer.classList.remove('open');
+      if (_srcMask) _srcMask.classList.remove('show');
+    }
+
+    function openSourceDrawer(p) {
+      const drawer = ensureSrcDrawer();
+      const varName = SD_VAR[p.kind] || 'kb';
+      drawer.style.setProperty('--ds-c', 'var(--ds-' + varName + ')');
+      drawer.style.setProperty('--ds-c-bg', 'var(--ds-' + varName + '-bg)');
+      drawer.innerHTML = '';
+
+      // 头部：类型徽章 + 标题/副标题 + 关闭
+      const head = el('div', 'sd-head');
+      const badge = el('span', 'ds-badge');
+      badge.appendChild(svgNode(SRC_ICONS[p.kind] || SRC_ICONS.doc, 12));
+      badge.appendChild(el('span', null, p.tag || SRC_TAGS[p.kind] || '引用'));
+      head.appendChild(badge);
+      const title = el('div', 'sd-title');
+      title.appendChild(el('b', null, p.title || '数据来源'));
+      if (p.sub) title.appendChild(el('small', null, p.sub));
+      head.appendChild(title);
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'sd-close';
+      close.title = '关闭（Esc）';
+      close.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        + 'stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+      close.addEventListener('click', closeSrcDrawer);
+      head.appendChild(close);
+      drawer.appendChild(head);
+
+      // 正文：基本信息 → 涉及数据表 → 说明 / 摘录 → SQL
+      const body = el('div', 'sd-body');
+
+      if (p.rows && p.rows.length) {
+        const dl = document.createElement('dl');
+        dl.className = 'sd-kv';
+        p.rows.forEach(function (pair) {
+          if (!pair || !pair[1]) return;
+          dl.appendChild(el('dt', null, pair[0]));
+          dl.appendChild(el('dd', null, String(pair[1])));
+        });
+        if (dl.children.length) body.appendChild(sdSection('基本信息', dl));
+      }
+
+      if (p.tables && p.tables.length) {
+        const chips = el('div', 'sd-chips');
+        p.tables.forEach(function (t) { chips.appendChild(el('span', 'sd-chip', t)); });
+        body.appendChild(sdSection('涉及数据表', chips));
+      }
+
+      if (p.pills && p.pills.length) {
+        const pills = el('div', 'sd-chips');
+        p.pills.forEach(function (t) { pills.appendChild(el('span', 'ds-pill', t)); });
+        body.appendChild(sdSection('定位', pills));
+      }
+
+      if (p.notes && p.notes.length) {
+        const text = el('div', 'sd-text', p.notes.filter(Boolean).join('\n'));
+        body.appendChild(sdSection('说明', text));
+      }
+
+      if (p.snippet) body.appendChild(sdSection('原文摘录', el('div', 'sd-text', p.snippet)));
+
+      if (p.sql) {
+        const pre = document.createElement('pre');
+        pre.className = 'sd-sql';
+        pre.textContent = p.sql;
+        body.appendChild(sdSection('执行的 SQL', pre));
+      }
+
+      drawer.appendChild(body);
+      requestAnimationFrame(function () {
+        drawer.classList.add('open');
+        if (_srcMask) _srcMask.classList.add('show');
+      });
+    }
+
+    function sdSection(label, node) {
+      const sec = el('div', 'sd-sec');
+      sec.appendChild(el('div', 'sd-label', label));
+      sec.appendChild(node);
+      return sec;
+    }
+
+    // 卡片 → 抽屉的公共绑定：整卡可点；卡内 SQL 的 <details> 不冒泡（原地展开不弹抽屉）
+    function attachSourceClick(item, payload) {
+      item.classList.add('ds-clickable');
+      item.title = '点击查看来源详情';
+      const more = el('span', 'ds-more');
+      more.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        + 'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+      item.appendChild(more);
+      item.addEventListener('click', function () { openSourceDrawer(payload); });
+      const det = item.querySelector('.ds-sql');
+      if (det) det.addEventListener('click', function (ev) { ev.stopPropagation(); });
     }
 
     function renderSources(box, content, items) {
@@ -2057,6 +2369,130 @@
       subNode.textContent = item.sub;
     }
     applyGreeting();
+
+    /* ---------------- 管理员上传：统一目录 + 落盘即解析 ---------------- */
+    const upBtn = document.querySelector('#uploads-btn');
+    const upPanel = document.querySelector('#up-panel');
+    const upMask = document.querySelector('#up-mask');
+    const upFile = document.querySelector('#up-file');
+    const upDrop = document.querySelector('#up-drop');
+    const upList = document.querySelector('#up-list');
+    const upMem = document.querySelector('#up-mem');
+    const upToken = document.querySelector('#up-token');
+
+    function upToast(text) {
+      const node = document.createElement('div');
+      node.className = 'up-toast';
+      node.textContent = text;
+      document.body.appendChild(node);
+      setTimeout(() => node.remove(), 2600);
+    }
+
+    function upQuery(extra) {
+      const token = (upToken && upToken.value || '').trim();
+      return token ? (extra + (extra.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)) : extra;
+    }
+
+    // 响应必须是 JSON；不是的话把 HTTP 状态码翻成人话
+    // （典型场景：更新代码后没重启 web.py，新接口不存在，Flask 返回 HTML 错误页）
+    function asJson(res) {
+      return res.text().then((text) => {
+        try {
+          return JSON.parse(text);
+        } catch (_e) {
+          const reason = res.status === 404 ? '接口不存在——多半是 web.py 还在跑旧代码，请重启 python web.py'
+            : res.status === 413 ? '文件超过上传大小上限'
+            : res.status === 401 ? '管理员令牌不对'
+            : '服务返回了非 JSON 响应（HTTP ' + res.status + '）';
+          throw new Error(reason);
+        }
+      });
+    }
+
+    function openUploads() {
+      upPanel.classList.add('open');
+      upMask.classList.add('show');
+      loadUploads();
+    }
+    function closeUploads() {
+      upPanel.classList.remove('open');
+      upMask.classList.remove('show');
+    }
+
+    function fmtSize(bytes) {
+      const n = Number(bytes) || 0;
+      return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+    }
+
+    function loadUploads() {
+      fetch(upQuery('/api/uploads'))
+        .then(asJson)
+        .then((data) => {
+          const files = data.files || [];
+          upList.innerHTML = '';
+          if (!files.length) {
+            upList.innerHTML = '<div class="up-empty">还没有上传文件。上传后会自动解析并记住表结构。</div>';
+          } else {
+            files.forEach((f) => {
+              const item = el('div', 'up-item');
+              const meta = el('div', 'up-meta');
+              meta.appendChild(el('div', 'up-name', f.name));
+              meta.appendChild(el('div', 'up-sub',
+                fmtSize(f.size) + ' · ' + (f.uploaded_at || '') + (f.supported ? '' : ' · 格式不支持')));
+              item.appendChild(meta);
+              const del = el('button', 'up-del', '删除');
+              del.type = 'button';
+              del.addEventListener('click', () => {
+                if (!confirm('删除 ' + f.name + '？索引与记忆会一并清理。')) return;
+                fetch(upQuery('/api/uploads/' + encodeURIComponent(f.name)), { method: 'DELETE' })
+                  .then(asJson)
+                  .then(() => { loadUploads(); upToast('已删除 ' + f.name); })
+                  .catch((err) => upToast('删除失败：' + err.message));
+              });
+              item.appendChild(del);
+              upList.appendChild(item);
+            });
+          }
+          const mem = data.memory || {};
+          upMem.textContent = '自动记忆：已学 ' + (mem.tables || 0) + ' 个文件的表结构，'
+            + '沉淀 ' + (mem.experiences || 0) + ' 次查询经验';
+        })
+        .catch((err) => { upMem.textContent = '读取失败：' + err.message; });
+    }
+
+    function uploadFiles(fileList) {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+      const form = new FormData();
+      files.forEach((f) => form.append('file', f));
+      upToast('正在上传并解析…');
+      fetch(upQuery('/api/uploads'), { method: 'POST', body: form })
+        .then((res) => asJson(res).then((data) => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok) { upToast('上传失败：' + (data.error || '未知错误')); return; }
+          const saved = data.saved || [];
+          const failed = data.failed || [];
+          if (saved.length) {
+            upToast('已上传并解析：' + saved.map((s) => s.name + '（' + s.tables + ' 表 / ' + s.rows + ' 行）').join('、'));
+          }
+          if (failed.length) upToast('失败：' + failed.map((f) => f.name + ' ' + f.error).join('；'));
+          loadUploads();
+        })
+        .catch((err) => upToast('上传失败：' + err.message));
+    }
+
+    if (upBtn) upBtn.addEventListener('click', openUploads);
+    if (upMask) upMask.addEventListener('click', closeUploads);
+    document.querySelector('#up-close').addEventListener('click', closeUploads);
+    upDrop.addEventListener('click', () => upFile.click());
+    upFile.addEventListener('change', () => { uploadFiles(upFile.files); upFile.value = ''; });
+    ['dragenter', 'dragover'].forEach((evt) => upDrop.addEventListener(evt, (e) => {
+      e.preventDefault(); upDrop.classList.add('over');
+    }));
+    ['dragleave', 'drop'].forEach((evt) => upDrop.addEventListener(evt, (e) => {
+      e.preventDefault(); upDrop.classList.remove('over');
+    }));
+    upDrop.addEventListener('drop', (e) => uploadFiles(e.dataTransfer && e.dataTransfer.files));
 
     /* ---------------- 数据技能卡选项（由后端 /api/skills 动态下发） ---------------- */
     function loadSkillOptions() {

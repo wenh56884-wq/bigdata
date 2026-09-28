@@ -40,6 +40,7 @@ ATTACH / PRAGMA / INSERT / DROP 等一律拒绝（连数据库文件都打不开
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -81,6 +82,14 @@ DATASETS: dict[str, dict] = {
 
 _META_TABLE = "_tables"
 _BUILD_INFO = "_build_info"
+
+# 第四个「数据集」：目录里的**真实表格文件**（Excel / CSV / TSV），由 spreadsheet.py 解析。
+# 只有当目录里确实有这类文件时才会注册——没有文件时一切行为与改造前完全一致。
+FILE_DATASET_KEY = "files"
+FILE_DATASET_TITLE = "本地表格文件（Excel / CSV）"
+
+# 索引结构版本：表名规则变更后（中文不再被吃掉）旧索引必须重建，否则新旧表名对不上
+SCHEMA_VERSION = "2"
 
 # 提问里的功能词：本身没有检索价值，但在这份语料里很稀有（IDF 高），
 # 不滤掉的话「第一 / 年的 / 哪个」这类词会把真正的业务词挤下去。
@@ -287,6 +296,8 @@ def detect_numeric_columns(rows: list[list[str]], width: int) -> list[bool]:
 
     阈值取 2 而不是 3：这份评测集里大量小表只有 2~3 行（例如「某指标 2011/2012 两年数值」），
     卡在 3 会让 「$ 34」「35」 这类真正的数值退化成文本，后面的百分比变化就算不出来。
+    同理，列里**总共只有 1 个值**时不再要求凑够 2 个——用户上传的小 Excel 常常就一行数据，
+    判成文本的话 SUM/AVG 全废（实测：单行「销售额 1200」被判成文本列）。
     """
     flags = []
     for col in range(width):
@@ -295,7 +306,8 @@ def detect_numeric_columns(rows: list[list[str]], width: int) -> list[bool]:
             flags.append(False)
             continue
         numeric = sum(1 for value in values if to_number(value) is not None)
-        flags.append(numeric >= 2 and numeric / len(values) >= 0.8)
+        need = min(2, len(values))          # 只有 1 个值时就按 1 个判，别把单行表逼成文本列
+        flags.append(numeric >= need and numeric / len(values) >= 0.8)
     return flags
 
 
@@ -350,7 +362,15 @@ def _quote(identifier: str) -> str:
 
 
 def _table_name(source_id: str) -> str:
-    return "t_" + re.sub(r"[^0-9a-zA-Z_]", "_", source_id)[:60]
+    """源 id → SQLite 表名。
+
+    为什么改：原来只保留 ASCII，中文文件名/中文列会被整段换成下划线——
+    「销售明细.xlsx」「库存.xlsx」会退化成同一个 `t____xlsx` 样子，既读不懂又可能撞名。
+    现在保留中文（可读、SQLite 支持中文标识符），并附一段 source_id 的哈希保证唯一且稳定。
+    """
+    safe = re.sub(r"[^\w\u4e00-\u9fff]+", "_", source_id).strip("_")
+    digest = hashlib.md5(source_id.encode("utf-8")).hexdigest()[:6]
+    return "t_" + (safe[:52] or "tbl") + "_" + digest
 
 
 def _search_blob(columns: list[str], rows: list[list], limit_values: int = 20) -> str:
@@ -385,10 +405,64 @@ def _db_connect(readonly: bool = False) -> sqlite3.Connection:
     return conn
 
 
+def _file_sources() -> list:
+    """要解析的表格文件：既有数据目录，也有管理员统一上传的目录。
+
+    两个目录是「或」的关系，哪个有文件就解析哪个（含在两个目录都有的情况）。
+    """
+    try:
+        from services import spreadsheet, uploads
+        found = list(spreadsheet.discover(TABLE_DATA_DIR))
+        upload_dir = uploads.directory()
+        if upload_dir.resolve() != TABLE_DATA_DIR.resolve():
+            found += [p for p in spreadsheet.discover(upload_dir)
+                      if p not in found]
+        return found
+    except Exception:
+        try:
+            from services import spreadsheet
+            return list(spreadsheet.discover(TABLE_DATA_DIR))
+        except Exception:
+            return []
+
+
+def _register_file_dataset() -> None:
+    """把「本地表格文件」注册成第四个数据集——仅当目录里确实有这类文件。
+
+    不注册时，list_sets / build / 工具文案全部与改造前一致，不会多出一个空数据集。
+    """
+    files = _file_sources()
+    if not files:
+        DATASETS.pop(FILE_DATASET_KEY, None)
+        return
+    DATASETS[FILE_DATASET_KEY] = {
+        "file": "",                      # 不是一个文件，而是一批文件（见 _file_sources）
+        "task": "",
+        "title": FILE_DATASET_TITLE,
+        "desc": "用户放入数据目录的 Excel / CSV / TSV 表格，按文件与 sheet 拆成表，可直接写 SQL 查",
+    }
+
+
+def _dataset_bytes(key: str, meta: dict) -> int:
+    """数据集的源文件体积（files 数据集是目录里所有表格文件之和）。"""
+    if key == FILE_DATASET_KEY:
+        try:
+            return sum(p.stat().st_size for p in _file_sources())
+        except OSError:
+            return 0
+    path = TABLE_DATA_DIR / meta.get("file", "")
+    return path.stat().st_size if path.exists() else 0
+
+
 def _source_signature() -> dict:
     """源数据文件的规模签名（用于判断要不要重建索引）。"""
     signature = {}
     for key, meta in DATASETS.items():
+        if key == FILE_DATASET_KEY:
+            signature[key] = [{"name": p.name, "size": p.stat().st_size,
+                               "mtime": int(p.stat().st_mtime)}
+                              for p in _file_sources()]
+            continue
         path = TABLE_DATA_DIR / meta["file"]
         try:
             stat = path.stat()
@@ -407,12 +481,28 @@ def _read_build_info() -> dict:
         return {}
 
 
+def _index_up_to_date(info: dict) -> bool:
+    """索引是否还有效：源文件签名一致 **且** 结构版本一致。"""
+    if not info or info.get("schema_version") != SCHEMA_VERSION:
+        return False
+    return info.get("signature") == json.dumps(_source_signature(), ensure_ascii=False)
+
+
 def iter_parsed_tables() -> Iterator[tuple[str, str, dict]]:
     """逐张产出 (dataset_key, source_id, 解析结果)。
 
     解析结果统一从这里取数，索引构建与命令行查询共用同一份逻辑。
     """
     for key, meta in DATASETS.items():
+        if key == FILE_DATASET_KEY:                  # 真实表格文件走 spreadsheet 解析
+            from services import spreadsheet
+            for path in _file_sources():             # 数据目录 + 统一上传目录
+                try:
+                    for source_id, table in spreadsheet.parse_file(path):
+                        yield key, f"{path.name}::{source_id}", table
+                except Exception as exc:             # 单个坏文件不拖垮整次构建
+                    print(f"[tables] 跳过 {path.name}：{type(exc).__name__}: {exc}", flush=True)
+            continue
         path = TABLE_DATA_DIR / meta["file"]
         if not path.exists():
             continue
@@ -424,18 +514,64 @@ def iter_parsed_tables() -> Iterator[tuple[str, str, dict]]:
 
 
 def build(force: bool = False, quiet: bool = False) -> dict:
-    """解析全部数据文件并重建 SQLite 索引；返回统计信息。"""
+    """解析全部数据文件并重建 SQLite 索引；返回统计信息。
+
+    除三个评测 .md 之外，还会把数据目录里的 Excel / CSV / TSV 一起解析入库
+    （见 FILE_DATASET_KEY）；目录里没有这类文件时行为不变。
+    """
+    _register_file_dataset()                  # 目录可能刚被放进新文件，这里重新扫一次
     started = time.time()
     if DB_PATH.exists() and not force:
         info = _read_build_info()
-        if info.get("signature") == json.dumps(_source_signature(), ensure_ascii=False):
+        if _index_up_to_date(info):
             return {**json.loads(info.get("stats") or "{}"), "rebuilt": False}
 
-    stats = {"datasets": {}, "tables": 0, "rows": 0, "html_tables": 0, "empty_tables": 0}
     tmp_path = DB_PATH.with_suffix(".building")
     if tmp_path.exists():
         tmp_path.unlink()
     conn = sqlite3.connect(str(tmp_path))
+    try:
+        stats = _write_index(conn, quiet, started)
+    finally:
+        conn.close()
+    try:
+        os.replace(tmp_path, DB_PATH)
+    except PermissionError:
+        # Windows 上服务（web.py）开着时索引文件被占用，临时文件替换不上去。
+        # 以前这里直接抛 PermissionError，还留下一个 .building 垃圾文件；
+        # 现在退回「原地重建」：在同一个库文件里 DROP 旧表再写一遍，不必停服务。
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        if not quiet:
+            print("[tables] 索引文件被占用，改为原地重建（若仍失败请先停掉 web.py）", flush=True)
+        stats = _rebuild_in_place(quiet, started)
+    with _MEM_LOCK:
+        _INDEX_CACHE.update({"mtime": None, "items": None, "df": None})
+    stats["rebuilt"] = True
+    return stats
+
+
+def _rebuild_in_place(quiet: bool, started: float) -> dict:
+    """在现有库文件里重建（用于目标文件被占用、无法整体替换时）。"""
+    conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
+    try:
+        for (name,) in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+            if name.startswith("sqlite_"):
+                continue
+            conn.execute(f"DROP TABLE IF EXISTS {_quote(name)}")
+        conn.commit()
+        return _write_index(conn, quiet, started)
+    finally:
+        conn.close()
+
+
+def _write_index(conn, quiet: bool, started: float) -> dict:
+    """把 iter_parsed_tables() 的结果写进某个连接（临时库或原地库都走这里）。"""
+    stats: dict = {"datasets": {}, "tables": 0, "rows": 0, "html_tables": 0, "empty_tables": 0}
     try:
         conn.execute(
             f"CREATE TABLE {_META_TABLE} ("
@@ -489,12 +625,12 @@ def build(force: bool = False, quiet: bool = False) -> dict:
             row["rows"] += len(table["rows"])
             row["html_tables"] += 1 if table["is_html"] else 0
         for key, meta in DATASETS.items():
-            path = TABLE_DATA_DIR / meta["file"]
             row = per_dataset[key]
             stats["datasets"][key] = {
                 "title": meta["title"], "tables": row["tables"], "rows": row["rows"],
                 "html_tables": row["html_tables"], "skipped_blocks": 0,
-                "file": meta["file"], "bytes": path.stat().st_size if path.exists() else 0,
+                "file": meta["file"] or "（目录内 Excel / CSV 文件）",
+                "bytes": _dataset_bytes(key, meta),
             }
             stats["tables"] += row["tables"]
             stats["rows"] += row["rows"]
@@ -506,6 +642,8 @@ def build(force: bool = False, quiet: bool = False) -> dict:
         conn.execute(
             f"INSERT INTO {_BUILD_INFO} VALUES ('built_at', ?)", (_now(),))
         conn.execute(
+            f"INSERT INTO {_BUILD_INFO} VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
+        conn.execute(
             f"INSERT INTO {_BUILD_INFO} VALUES ('signature', ?)",
             (json.dumps(_source_signature(), ensure_ascii=False),))
         stats["built_at"] = _now()
@@ -513,13 +651,10 @@ def build(force: bool = False, quiet: bool = False) -> dict:
         conn.execute(f"INSERT INTO {_BUILD_INFO} VALUES ('stats', ?)",
                      (json.dumps(stats, ensure_ascii=False),))
         conn.commit()
+        return stats
     finally:
-        conn.close()
-    os.replace(tmp_path, DB_PATH)
-    with _MEM_LOCK:
-        _INDEX_CACHE.update({"mtime": None, "items": None, "df": None})
-    stats["rebuilt"] = True
-    return stats
+        # 注意：这里**不能**关连接（调用方还要用），也别在 finally 里 return
+        pass
 
 
 def ensure(force: bool = False) -> dict:
@@ -527,7 +662,7 @@ def ensure(force: bool = False) -> dict:
     try:
         if DB_PATH.exists() and not force:
             info = _read_build_info()
-            if info.get("signature") == json.dumps(_source_signature(), ensure_ascii=False):
+            if _index_up_to_date(info):
                 return {**json.loads(info.get("stats") or "{}"), "rebuilt": False}
     except Exception:
         pass
@@ -538,7 +673,11 @@ def available() -> bool:
     """数据目录与至少一份数据文件是否存在（决定要不要给 Agent 挂这些工具）。"""
     if not TABLE_DATA_DIR.exists():
         return False
-    return any((TABLE_DATA_DIR / meta["file"]).exists() for meta in DATASETS.values())
+    if _file_sources():                       # 目录里有 Excel / CSV 也算可用
+        return True
+    # 注意：files 数据集的 meta["file"] 是空串，不能参与下面的判断（目录本身总是 exists）
+    return any(meta["file"] and (TABLE_DATA_DIR / meta["file"]).exists()
+               for meta in DATASETS.values())
 
 
 # --------------------------------------------------------------------------- #
@@ -702,7 +841,11 @@ def _load_index() -> list[dict]:
             return _INDEX_CACHE["items"]
         items = []
         for row in _meta_rows():
-            blob = (row.get("search_blob") or "").lower()
+            # 检索文本 = 表内容 + **文件名 / sheet 名 / 来源文件**：
+            # 用户往往会「按文件名」找表（"销售明细那张表"），而这些信息原本不在表内容里，
+            # 不放进来的话问文件名会一条都召回不到（Excel/CSV 尤其明显）。
+            blob = " ".join(str(row.get(key) or "") for key in
+                            ("search_blob", "source_id", "source_file")).lower()
             items.append({
                 "table": row["table_name"],
                 "source_id": row["source_id"],
@@ -767,8 +910,13 @@ def find_tables(question: str, dataset: str = "", limit: int = 5,
         if not hits:
             continue
         score = sum(_idf(df, total, token) for token in hits)
-        # 单个偶合词（哪怕很长）不足以入选，除非它足够稀有
-        if score < 1.5:
+        # 单个偶合词（哪怕很长）不足以入选，除非它足够稀有。
+        # 但阈值不能只看绝对分数：IDF 是相对**表里有多少张表**算的，表很少时
+        # （比如用户只放了 2 个 Excel）分数天然低——实测「销售额」在 2 张表的库里
+        # 只有 1.38 分，会被 1.5 这条线误杀。所以补一条覆盖率判据：
+        # 查询词命中得越全，说明越可能是这张表，哪怕绝对分不高也留下。
+        coverage = len(hits) / max(1, len(query_tokens))
+        if score < 1.5 and coverage < 0.5:
             continue
         scored.append((score, len(hits), item, sorted(hits, key=lambda t: -_idf(df, total, t))[:6]))
     scored.sort(key=lambda pair: (-pair[0], -pair[1], pair[2]["table"]))
@@ -895,6 +1043,8 @@ def _match_dataset(name: str) -> str | None:
         "table_query": ("表格查询", "单表查询", "tq"),
         "domain_ops": ("领域运算", "运算", "ops", "专业运算"),
         "multi_step": ("多步检索", "多步", "msr", "检索"),
+        FILE_DATASET_KEY: ("本地表格", "本地文件", "上传", "excel", "xlsx", "csv",
+                           "表格文件", "我上传", "我的表格"),
     }
     for key, names in aliases.items():
         if any(alias in text for alias in names):
@@ -903,12 +1053,17 @@ def _match_dataset(name: str) -> str | None:
 
 
 def list_sets() -> list[dict]:
-    """三个数据集的规模（供工具与界面展示）。"""
+    """各数据集的规模（供工具与界面展示）；含目录里的 Excel / CSV 表格文件。"""
+    _register_file_dataset()
     info = _read_build_info()
     stats_data = json.loads(info.get("stats") or "{}") if info else {}
     out = []
     for key, meta in DATASETS.items():
         row = (stats_data.get("datasets") or {}).get(key) or {}
+        if key == FILE_DATASET_KEY:
+            ready = bool(_file_sources())
+        else:
+            ready = (TABLE_DATA_DIR / meta["file"]).exists()
         out.append({
             "key": key,
             "title": meta["title"],
@@ -916,8 +1071,8 @@ def list_sets() -> list[dict]:
             "tables": row.get("tables", 0),
             "rows": row.get("rows", 0),
             "html_tables": row.get("html_tables", 0),
-            "file": meta["file"],
-            "ready": (TABLE_DATA_DIR / meta["file"]).exists(),
+            "file": meta["file"] or "（目录内 Excel / CSV 文件）",
+            "ready": ready,
         })
     return out
 
@@ -959,6 +1114,11 @@ _DATASET_KEYWORDS: dict[str, tuple[tuple[str, float], ...]] = {
         ("环比", 1.5), ("增长", 1.2), ("下降", 1.2), ("变化率", 2.0), ("上涨", 1.5), ("下跌", 1.5),
         ("电价", 2.0), ("煤", 1.5), ("石油", 1.5), ("资产", 1.2), ("负债", 1.5), ("权益", 1.5),
         ("假设", 0.8), ("并未发生", 1.8), ("摩根", 2.0), ("revenue", 2.0), ("spread", 2.0),
+    ),
+    FILE_DATASET_KEY: (
+        ("excel", 2.5), ("xlsx", 2.5), ("xls", 2.0), ("csv", 2.5), ("tsv", 2.0),
+        ("表格文件", 2.5), ("工作簿", 2.0), ("sheet", 2.0), ("工作表", 2.0),
+        ("上传", 1.8), ("导入", 1.8), ("我的表", 2.0), ("本地表格", 2.5),
     ),
     "table_query": (
         ("哪一列", 1.5), ("哪列", 1.5), ("列名", 1.2), ("表头", 1.5), ("第一行", 1.5), ("单元格", 1.2),
@@ -1038,6 +1198,8 @@ def analyze_question(question: str, dataset: str = "") -> dict:
     lower = text.lower()
     scored = []
     for key, words in _DATASET_KEYWORDS.items():
+        if key not in DATASETS:                  # 目录里没有表格文件时 files 不会注册
+            continue
         hits = [word for word, _weight in words if word in lower]
         score = sum(weight for word, weight in words if word in lower)
         if wanted == key:
