@@ -17,7 +17,7 @@ from core.agent import ChatService, db_skill_cards, delete_memory, list_memories
 app = Flask(__name__)
 # 上传大小上限（要略大于单文件上限，留给 multipart 的开销）
 app.config["MAX_CONTENT_LENGTH"] = int(
-    float(os.getenv("UPLOAD_MAX_MB", "50")) * 1024 * 1024 * 1.2)
+    float(os.getenv("UPLOAD_MAX_MB", "1024")) * 1024 * 1024 * 1.2)
 service = ChatService()
 
 
@@ -167,6 +167,33 @@ def upload_create():
             except Exception as exc:
                 failed.append({"name": item.filename, "error": str(exc)})
         return jsonify({"saved": saved, "failed": failed}), 201
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.get("/api/uploads/<path:name>/preview")
+def upload_preview(name):
+    """查看上传后的实际内容：表格行列、文档正文或图片 OCR 文本。"""
+    try:
+        from services import uploads
+        return jsonify(uploads.preview(name))
+    except FileNotFoundError:
+        return jsonify({"error": "文件不存在。"}), 404
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.get("/api/uploads/<path:name>/content")
+def upload_image_content(name):
+    """仅以内联方式返回已上传图片，供资料预览弹窗展示原图。"""
+    try:
+        from services import uploads
+        target = uploads.image_file(name)
+        if not target:
+            return jsonify({"error": "图片不存在。"}), 404
+        response = send_from_directory(uploads.directory(), target.name)
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
 

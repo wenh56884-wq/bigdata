@@ -890,10 +890,12 @@
       .up-item .up-meta { flex: 1; min-width: 0; }
       .up-item .up-name { font-size: 12.5px; color: var(--ink); word-break: break-all; }
       .up-item .up-sub { font-size: 11px; color: var(--muted-2); margin-top: 2px; }
-      .up-item .up-del {
+      .up-item .up-actions { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+      .up-item .up-view, .up-item .up-del {
         flex: none; border: 0; background: transparent; color: var(--muted);
         cursor: pointer; font-size: 12px; padding: 3px 6px; border-radius: 6px;
       }
+      .up-item .up-view:hover { background: var(--chip-hover); color: var(--accent); }
       .up-item .up-del:hover { background: var(--chip-hover); color: #d64545; }
       .up-empty { color: var(--muted-2); font-size: 12px; padding: 6px 2px; }
       .up-mem {
@@ -906,7 +908,58 @@
         font-size: 12.5px; z-index: 120; box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
       }
 
+      /* ---------- 上传资料预览（表格 / 文本 / 图片） ---------- */
+      .data-preview-mask {
+        position: fixed; inset: 0; z-index: 90; display: grid; place-items: center;
+        padding: 20px; background: rgba(15, 18, 34, .48); opacity: 0; pointer-events: none;
+        transition: opacity .18s;
+      }
+      .data-preview-mask.show { opacity: 1; pointer-events: auto; }
+      .data-preview {
+        width: min(1050px, 100%); max-height: min(760px, calc(100vh - 40px));
+        display: grid; grid-template-rows: auto auto auto minmax(0, 1fr);
+        overflow: hidden; border: 1px solid var(--line-2); border-radius: 8px;
+        background: var(--panel); box-shadow: var(--shadow-lg);
+      }
+      .data-preview-head {
+        min-width: 0; display: flex; align-items: center; gap: 12px; padding: 13px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .data-preview-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--ink); }
+      .data-preview-close {
+        width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px;
+        background: transparent; color: var(--muted); cursor: pointer; font-size: 19px; line-height: 1;
+      }
+      .data-preview-close:hover { background: var(--chip-hover); color: var(--ink); }
+      .data-preview-info { padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.55; }
+      .data-preview-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 9px 16px; border-bottom: 1px solid var(--line); }
+      .data-preview-tabs:empty { display: none; }
+      .data-preview-tab {
+        flex: 0 0 auto; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-2);
+        color: var(--muted); padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px;
+      }
+      .data-preview-tab:hover, .data-preview-tab.active { border-color: var(--accent); background: var(--grad-soft); color: var(--accent); }
+      .data-preview-content { min-height: 0; overflow: auto; padding: 14px 16px 16px; }
+      .data-preview-note { margin: 0 0 10px; color: var(--muted-2); font-size: 11.5px; }
+      .data-table-wrap { overflow: auto; max-height: 510px; border: 1px solid var(--line); border-radius: 6px; }
+      .data-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      .data-table th, .data-table td { max-width: 260px; padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .data-table th { position: sticky; top: 0; z-index: 1; background: var(--th-bg); color: var(--ink); font-weight: 650; }
+      .data-table td { color: var(--muted); }
+      .data-table tr:nth-child(even) td { background: color-mix(in srgb, var(--accent) 3%, transparent); }
+      .data-table tr:last-child td { border-bottom: 0; }
+      .data-preview-text { margin: 0; color: var(--ink); font: 12.5px/1.75 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; word-break: break-word; }
+      .data-preview-section { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 700; }
+      .data-preview-image { display: block; width: 100%; max-height: 300px; object-fit: contain; margin: 0 0 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }
+      .data-preview-empty { padding: 30px 10px; text-align: center; color: var(--muted-2); font-size: 13px; }
+
       @media (max-width: 760px) {
+        .data-preview-mask { padding: 10px; }
+        .data-preview { max-height: calc(100vh - 20px); }
+        .data-preview-head, .data-preview-info { padding-left: 12px; padding-right: 12px; }
+        .data-preview-tabs { padding-left: 12px; padding-right: 12px; }
+        .data-preview-content { padding: 12px; }
+        .data-table th, .data-table td { max-width: 190px; }
         .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
         .side { flex-direction: column; border-right: 0; border-bottom: 1px solid var(--line); padding: 10px 12px 8px; }
         .side .brand { padding: 2px 4px 8px; }
@@ -974,23 +1027,24 @@
         <button class="icon-btn" id="theme-btn" type="button" title="切换深色 / 浅色模式"></button>
         <button class="head-btn" id="rename-btn" type="button">重命名</button>
         <button class="head-btn danger" id="delete-btn" type="button">删除</button>
-        <button class="head-btn" id="uploads-btn" type="button" title="管理员上传 Excel / CSV 到统一目录，落盘即自动解析并记住表结构">数据</button>
+        <button class="head-btn" id="uploads-btn" type="button" title="上传表格、文档或图片，之后可直接向 AI 提问">资料</button>
       </div>
+
 
       <!-- 管理员上传面板：统一目录 data/uploads，上传即自动解析 + 记忆 -->
       <div class="up-mask" id="up-mask"></div>
       <div class="up-panel" id="up-panel" aria-label="数据文件管理">
         <div class="up-head">
-          <b>数据文件（统一目录）</b>
+          <b>资料上传</b>
           <button class="up-close" id="up-close" type="button" title="关闭">×</button>
         </div>
         <div class="up-body">
           <div class="up-drop" id="up-drop">
-            <input type="file" id="up-file" multiple accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt" hidden>
+            <input type="file" id="up-file" multiple accept=".xlsx,.xlsm,.xls,.ods,.csv,.tsv,.txt,.json,.jsonl,.ndjson,.parquet,.pq,.feather,.sqlite,.sqlite3,.db,.xml,.pdf,.docx,.pptx,.md,.markdown,.png,.jpg,.jpeg,.bmp,.webp,.tif,.tiff" hidden>
             <div class="up-drop-in">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-              <span>点击或把 Excel / CSV 拖到这里</span>
-              <small id="up-hint">上传后自动解析并记住表结构，用户马上就能问</small>
+              <span>点击或拖入表格、文档、图片</span>
+              <small id="up-hint">表格入 SQLite；PDF、Word、PPT 和图片文字自动提取，直接问 AI</small>
             </div>
           </div>
           <div class="up-token" id="up-token-wrap">
@@ -999,6 +1053,17 @@
           <div class="up-list" id="up-list"></div>
           <div class="up-mem" id="up-mem"></div>
         </div>
+      </div>
+      <div class="data-preview-mask" id="data-preview-mask" aria-hidden="true">
+        <section class="data-preview" role="dialog" aria-modal="true" aria-labelledby="data-preview-title">
+          <div class="data-preview-head">
+            <b class="data-preview-title" id="data-preview-title">数据预览</b>
+            <button class="data-preview-close" id="data-preview-close" type="button" title="关闭预览" aria-label="关闭预览">×</button>
+          </div>
+          <div class="data-preview-info" id="data-preview-info">正在读取资料…</div>
+          <div class="data-preview-tabs" id="data-preview-tabs"></div>
+          <div class="data-preview-content" id="data-preview-content"></div>
+        </section>
       </div>
 
       <section id="messages" aria-live="polite">
@@ -2379,6 +2444,11 @@
     const upList = document.querySelector('#up-list');
     const upMem = document.querySelector('#up-mem');
     const upToken = document.querySelector('#up-token');
+    const dataPreviewMask = document.querySelector('#data-preview-mask');
+    const dataPreviewTitle = document.querySelector('#data-preview-title');
+    const dataPreviewInfo = document.querySelector('#data-preview-info');
+    const dataPreviewTabs = document.querySelector('#data-preview-tabs');
+    const dataPreviewContent = document.querySelector('#data-preview-content');
 
     function upToast(text) {
       const node = document.createElement('div');
@@ -2424,6 +2494,102 @@
       return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
     }
 
+    function closeDataPreview() {
+      dataPreviewMask.classList.remove('show');
+      dataPreviewMask.setAttribute('aria-hidden', 'true');
+    }
+
+    function previewEmpty(message) {
+      dataPreviewContent.innerHTML = '';
+      dataPreviewContent.appendChild(el('div', 'data-preview-empty', message));
+    }
+
+    function renderTablePreview(preview) {
+      const sheets = preview.sheets || [];
+      if (!sheets.length) {
+        dataPreviewInfo.textContent = preview.message || '没有可显示的表格数据。';
+        previewEmpty('暂无可预览的数据');
+        return;
+      }
+      const showSheet = (sheet, tab) => {
+        [...dataPreviewTabs.children].forEach((node) => node.classList.toggle('active', node === tab));
+        dataPreviewInfo.textContent = sheet.name + ' · ' + sheet.total_rows + ' 行 × ' + sheet.total_cols + ' 列'
+          + (sheet.truncated ? ' · 当前显示前 ' + sheet.rows.length + ' 行' : '');
+        dataPreviewContent.innerHTML = '';
+        if (sheet.truncated) dataPreviewContent.appendChild(el('p', 'data-preview-note', '为保持加载速度，仅展示前 ' + sheet.rows.length + ' 行。'));
+        const wrap = el('div', 'data-table-wrap');
+        const table = el('table', 'data-table');
+        const head = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        (sheet.columns || []).forEach((column) => headRow.appendChild(el('th', '', column)));
+        head.appendChild(headRow);
+        table.appendChild(head);
+        const body = document.createElement('tbody');
+        (sheet.rows || []).forEach((row) => {
+          const tr = document.createElement('tr');
+          (sheet.columns || []).forEach((_, index) => tr.appendChild(el('td', '', row[index] == null ? '' : String(row[index]))));
+          body.appendChild(tr);
+        });
+        table.appendChild(body);
+        wrap.appendChild(table);
+        dataPreviewContent.appendChild(wrap);
+      };
+      dataPreviewTabs.innerHTML = '';
+      sheets.forEach((sheet, index) => {
+        const tab = el('button', 'data-preview-tab', sheet.name);
+        tab.type = 'button';
+        tab.addEventListener('click', () => showSheet(sheet, tab));
+        dataPreviewTabs.appendChild(tab);
+        if (index === 0) showSheet(sheet, tab);
+      });
+    }
+
+    function renderTextPreview(preview) {
+      dataPreviewTabs.innerHTML = '';
+      const isImage = preview.kind === 'image';
+      const text = preview.text || '';
+      dataPreviewInfo.textContent = (isImage ? '原图与 OCR 识别文本' : '已提取的可检索文本')
+        + (preview.truncated ? ' · 当前显示前 16,000 字' : '');
+      dataPreviewContent.innerHTML = '';
+      if (isImage) {
+        const image = document.createElement('img');
+        image.className = 'data-preview-image';
+        image.src = upQuery('/api/uploads/' + encodeURIComponent(preview.name) + '/content');
+        image.alt = preview.name;
+        dataPreviewContent.appendChild(image);
+      }
+      dataPreviewContent.appendChild(el('div', 'data-preview-section', isImage ? 'OCR 识别文本' : '文本内容'));
+      if (text) dataPreviewContent.appendChild(el('pre', 'data-preview-text', text));
+      else dataPreviewContent.appendChild(el('div', 'data-preview-empty', preview.message || '尚未提取到文字'));
+    }
+
+    function openDataPreview(file) {
+      dataPreviewTitle.textContent = file.name + ' · 数据预览';
+      dataPreviewInfo.textContent = '正在读取资料…';
+      dataPreviewTabs.innerHTML = '';
+      previewEmpty('正在加载预览…');
+      dataPreviewMask.classList.add('show');
+      dataPreviewMask.setAttribute('aria-hidden', 'false');
+      fetch(upQuery('/api/uploads/' + encodeURIComponent(file.name) + '/preview'))
+        .then((res) => asJson(res).then((data) => {
+          if (!res.ok) throw new Error(data.error || '读取预览失败');
+          return data;
+        }))
+        .then((preview) => {
+          dataPreviewTitle.textContent = preview.name + ' · 数据预览';
+          if (preview.kind === 'table') renderTablePreview(preview);
+          else if (preview.kind === 'document' || preview.kind === 'image') renderTextPreview(preview);
+          else {
+            dataPreviewInfo.textContent = preview.message || '此文件类型不支持预览。';
+            previewEmpty('无法预览此文件');
+          }
+        })
+        .catch((err) => {
+          dataPreviewInfo.textContent = '读取失败';
+          previewEmpty(err.message);
+        });
+    }
+
     function loadUploads() {
       fetch(upQuery('/api/uploads'))
         .then(asJson)
@@ -2437,9 +2603,18 @@
               const item = el('div', 'up-item');
               const meta = el('div', 'up-meta');
               meta.appendChild(el('div', 'up-name', f.name));
+              const kindName = { table: '表格', document: '文档', image: '图片' }[f.kind] || '文件';
               meta.appendChild(el('div', 'up-sub',
-                fmtSize(f.size) + ' · ' + (f.uploaded_at || '') + (f.supported ? '' : ' · 格式不支持')));
+                kindName + ' · ' + fmtSize(f.size) + ' · ' + (f.uploaded_at || '')
+                + (f.status ? ' · ' + f.status : '') + (f.supported ? '' : ' · 格式不支持')));
               item.appendChild(meta);
+              const actions = el('div', 'up-actions');
+              if (f.supported) {
+                const view = el('button', 'up-view', '查看');
+                view.type = 'button';
+                view.addEventListener('click', () => openDataPreview(f));
+                actions.appendChild(view);
+              }
               const del = el('button', 'up-del', '删除');
               del.type = 'button';
               del.addEventListener('click', () => {
@@ -2449,7 +2624,8 @@
                   .then(() => { loadUploads(); upToast('已删除 ' + f.name); })
                   .catch((err) => upToast('删除失败：' + err.message));
               });
-              item.appendChild(del);
+              actions.appendChild(del);
+              item.appendChild(actions);
               upList.appendChild(item);
             });
           }
@@ -2473,7 +2649,9 @@
           const saved = data.saved || [];
           const failed = data.failed || [];
           if (saved.length) {
-            upToast('已上传并解析：' + saved.map((s) => s.name + '（' + s.tables + ' 表 / ' + s.rows + ' 行）').join('、'));
+            upToast('已完成：' + saved.map((s) => s.kind === 'table'
+              ? s.name + '（' + s.tables + ' 表 / ' + s.rows + ' 行）'
+              : s.name + '（' + (s.message || s.status || '已保存') + '）').join('、'));
           }
           if (failed.length) upToast('失败：' + failed.map((f) => f.name + ' ' + f.error).join('；'));
           loadUploads();
@@ -2484,6 +2662,11 @@
     if (upBtn) upBtn.addEventListener('click', openUploads);
     if (upMask) upMask.addEventListener('click', closeUploads);
     document.querySelector('#up-close').addEventListener('click', closeUploads);
+    dataPreviewMask.addEventListener('click', (event) => { if (event.target === dataPreviewMask) closeDataPreview(); });
+    document.querySelector('#data-preview-close').addEventListener('click', closeDataPreview);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && dataPreviewMask.classList.contains('show')) closeDataPreview();
+    });
     upDrop.addEventListener('click', () => upFile.click());
     upFile.addEventListener('change', () => { uploadFiles(upFile.files); upFile.value = ''; });
     ['dragenter', 'dragover'].forEach((evt) => upDrop.addEventListener(evt, (e) => {

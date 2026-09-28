@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import re
+import sqlite3
 import sys
+import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
@@ -33,15 +36,20 @@ except ModuleNotFoundError:             # 直接运行：python services/spreads
     from services import tables
 
 # 支持的文件后缀（.txt 走分隔符探测，只在确实像表格时才收）
-SUFFIX_EXCEL = {".xlsx", ".xlsm"}
+SUFFIX_EXCEL = {".xlsx", ".xlsm", ".ods"}
 SUFFIX_LEGACY = {".xls"}
 SUFFIX_DELIM = {".csv", ".tsv", ".txt"}
-SUPPORTED_SUFFIXES = SUFFIX_EXCEL | SUFFIX_LEGACY | SUFFIX_DELIM
+SUFFIX_JSON = {".json", ".jsonl", ".ndjson"}
+SUFFIX_PARQUET = {".parquet", ".pq", ".feather"}
+SUFFIX_SQLITE = {".sqlite", ".sqlite3", ".db"}
+SUFFIX_XML = {".xml"}
+SUPPORTED_SUFFIXES = (SUFFIX_EXCEL | SUFFIX_LEGACY | SUFFIX_DELIM | SUFFIX_JSON |
+                      SUFFIX_PARQUET | SUFFIX_SQLITE | SUFFIX_XML)
 
 # 读盘编码顺序：国内 Excel 导出的 CSV 多为 GBK，带 BOM 的 UTF-8 也要先试
 ENCODINGS = ("utf-8-sig", "gb18030", "utf-8", "big5", "latin-1")
 
-MAX_ROWS = int(os.getenv("TABLE_FILE_MAX_ROWS", "50000"))      # 单张表最多收多少行
+MAX_ROWS = int(os.getenv("TABLE_FILE_MAX_ROWS", "200000"))     # 单张表最多收多少行
 MAX_COLS = int(os.getenv("TABLE_FILE_MAX_COLS", "200"))        # 单张表最多收多少列
 MAX_CELL_CHARS = 500                                           # 单元格文本上限（防止一个备注撑爆 blob）
 
@@ -148,6 +156,14 @@ def _finish(headers: list[str], rows: list[list]) -> dict | None:
     }
 
 
+def _empty_table(headers: list[str]) -> dict | None:
+    """保留空 SQLite 表的结构，让模型能识别并在后续数据写入后直接查询。"""
+    if not headers:
+        return None
+    columns = tables.normalize_columns(headers, min(len(headers), MAX_COLS))
+    return {"columns": columns, "rows": [], "numeric": [False] * len(columns), "is_html": False}
+
+
 def _parse_delimited(path: Path) -> Iterator[tuple[str, dict]]:
     text = _read_text(path)
     if not text.strip():
@@ -197,6 +213,117 @@ def _parse_excel(path: Path) -> Iterator[tuple[str, dict]]:
         yield source_id, table
 
 
+def _records_table(records: list[dict]) -> dict | None:
+    """对象列表规整成一张表，嵌套值保留为 JSON 文本以免静默丢字段。"""
+    if not records:
+        return None
+    columns: list[str] = []
+    for record in records:
+        for key in record:
+            key = str(key)
+            if key not in columns:
+                columns.append(key)
+            if len(columns) >= MAX_COLS:
+                break
+    rows = []
+    for record in records[:MAX_ROWS]:
+        row = []
+        for column in columns:
+            value = record.get(column, "")
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            row.append(_clean_cell(value))
+        rows.append(row)
+    return _finish(columns, rows)
+
+
+def _parse_json(path: Path) -> Iterator[tuple[str, dict]]:
+    try:
+        if path.suffix.lower() in {".jsonl", ".ndjson"}:
+            raw = [json.loads(line) for line in _read_text(path).splitlines() if line.strip()]
+        else:
+            raw = json.loads(_read_text(path))
+    except json.JSONDecodeError as exc:
+        raise SpreadsheetError(f"JSON 格式错误：{exc}") from exc
+    if isinstance(raw, dict):
+        for key in ("data", "records", "items", "rows", "result"):
+            if isinstance(raw.get(key), list):
+                raw = raw[key]
+                break
+        else:
+            raw = [raw]
+    if not isinstance(raw, list):
+        raw = [{"value": raw}]
+    records = [item if isinstance(item, dict) else {"value": item} for item in raw]
+    table = _records_table(records)
+    if table:
+        yield path.stem, table
+
+
+def _parse_parquet(path: Path) -> Iterator[tuple[str, dict]]:
+    try:
+        import pandas as pd
+        frame = pd.read_feather(path) if path.suffix.lower() == ".feather" else pd.read_parquet(path)
+    except ImportError as exc:
+        raise SpreadsheetError(f"读取 {path.name} 需要 pyarrow：{exc}") from exc
+    except Exception as exc:
+        raise SpreadsheetError(f"读取 {path.name} 失败：{exc}") from exc
+    rows = [[_clean_cell(value) for value in row] for row in frame.itertuples(index=False, name=None)]
+    table = _finish([str(x) for x in frame.columns], rows[:MAX_ROWS])
+    if table:
+        yield path.stem, table
+
+
+def _parse_sqlite(path: Path) -> Iterator[tuple[str, dict]]:
+    try:
+        conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        raise SpreadsheetError(f"打开 SQLite 数据库失败：{exc}") from exc
+    try:
+        names = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table','view') "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
+        for (name,) in names:
+            quoted = '"' + str(name).replace('"', '""') + '"'
+            try:
+                cur = conn.execute(f"SELECT * FROM {quoted} LIMIT {MAX_ROWS}")
+                headers = [str(col[0]) for col in (cur.description or [])]
+                rows = [[_clean_cell(value) for value in row] for row in cur.fetchall()]
+                table = _finish(headers, rows) or _empty_table(headers)
+                if table:
+                    yield f"{path.stem}#{name}", table
+            except sqlite3.Error as exc:
+                print(f"[spreadsheet] 跳过 SQLite 表 {name}：{exc}", file=sys.stderr, flush=True)
+    finally:
+        conn.close()
+
+
+def _parse_xml(path: Path) -> Iterator[tuple[str, dict]]:
+    try:
+        root = ET.fromstring(path.read_bytes())
+    except ET.ParseError as exc:
+        raise SpreadsheetError(f"XML 格式错误：{exc}") from exc
+    children = list(root)
+    nodes = children if children else [root]
+    records: list[dict] = []
+    for node in nodes:
+        record = {f"@{key}": value for key, value in node.attrib.items()}
+        nested = list(node)
+        if nested:
+            for child in nested:
+                key = child.tag.rsplit("}", 1)[-1]
+                value = child.text or ""
+                if list(child):
+                    value = ET.tostring(child, encoding="unicode")
+                record[key] = value
+        else:
+            record[node.tag.rsplit("}", 1)[-1]] = node.text or ""
+        records.append(record)
+    table = _records_table(records)
+    if table:
+        yield path.stem, table
+
+
 def parse_file(path: str | Path) -> Iterator[tuple[str, dict]]:
     """解析单个文件，逐张产出 (source_id, 表格字典)。读不动就抛 SpreadsheetError。"""
     path = Path(path)
@@ -205,6 +332,14 @@ def parse_file(path: str | Path) -> Iterator[tuple[str, dict]]:
         yield from _parse_excel(path)
     elif suffix in SUFFIX_DELIM:
         yield from _parse_delimited(path)
+    elif suffix in SUFFIX_JSON:
+        yield from _parse_json(path)
+    elif suffix in SUFFIX_PARQUET:
+        yield from _parse_parquet(path)
+    elif suffix in SUFFIX_SQLITE:
+        yield from _parse_sqlite(path)
+    elif suffix in SUFFIX_XML:
+        yield from _parse_xml(path)
     else:
         raise SpreadsheetError(f"不支持的文件类型：{suffix}")
 

@@ -387,6 +387,7 @@ class RagService:
         self._vdb = None
         self._vdb_map: dict[str, int] = {}    # 向量库 ref → self._documents 下标
         self._vdb_error: str | None = None
+        self._source_signature = ""
 
     # ------------------------- 文件枚举 ------------------------- #
     def _iter_source_files(self):
@@ -406,6 +407,18 @@ class RagService:
 
     def files(self) -> list[str]:
         return [str(p.relative_to(self.directory)).replace("\\", "/") for p in self._iter_source_files()]
+
+    def _signature(self) -> str:
+        """资料文件有新增、删除或修改时，让下次检索自动刷新索引。"""
+        parts = []
+        for path in self._iter_source_files():
+            try:
+                stat = path.stat()
+                relative = str(path.relative_to(self.directory)).replace("\\", "/")
+                parts.append(f"{relative}:{stat.st_size}:{stat.st_mtime_ns}")
+            except OSError:
+                continue
+        return "|".join(parts)
 
     # ------------------------- 索引构建 ------------------------- #
     def _load_documents(self) -> tuple[list[Document], int, list[str]]:
@@ -474,6 +487,7 @@ class RagService:
                 self._sync_vectordb(documents, warnings)
 
             self._error = "；".join(warnings) if warnings else None
+            self._source_signature = self._signature()
 
     def _sync_vectordb(self, documents: list[Document], warnings: list[str]) -> None:
         """将分块同步进持久化向量库（增量：内容未变的分块不重新向量化）。
@@ -499,7 +513,7 @@ class RagService:
             warnings.append(f"向量数据库同步失败，已降级为关键词/Embedding 检索：{exc}")
 
     def _ensure(self) -> None:
-        if self._kw is None and self.files():
+        if self.files() and (self._kw is None or self._signature() != self._source_signature):
             self.rebuild()
 
     # ------------------------- 引擎状态 ------------------------- #

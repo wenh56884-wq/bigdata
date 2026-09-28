@@ -1220,6 +1220,31 @@ python eval_jiso.py --resume --out reports/jiso_eval_xxx   # 断点续跑（跳�
 > 约定：每次对代码 / 配置 / 文档做出修改后，都在本节**顶部**追加一条“日期 + 改了什么”，
 > 只记功能与口径变化，保持简洁、如实。
 
+### 2026-09-28（`core/agent.py` 可读性重构，行为不变）
+
+> 需求：`agent.py` 单文件 4200+ 行、170 个函数，重复定义与超长函数并存，改一处要翻很久。
+> 本次只做**内部结构整理**，对外 API、工具数量、提示词内容与回答口径全部保持不变。
+
+**修掉两处真实隐患**：① `_resolve_db_name` 被定义了两次（第二个覆盖第一个），
+`get_table_schema(database='乱写')` 会拿着非法库名去连库而不是提示“库名没确定”——
+现在拆成语义明确的两个：`_resolve_db_name()`（认不出返回 `None`）与
+`_coerce_db_name()`（认不出原样返回，供数据洞察工具用），别名表只留一份 `_DB_ALIASES`；
+② `knowledge_keywords()` 里引用了不存在的 `KNOWLEDGE_DIR`（异常被 `except` 吞掉，
+导致知识库文件名关键词一直没被收集），改用 `rag_service.directory`。
+
+**长函数拆分**：`plot_last_result` → `_column_index` / `_is_numeric_column` /
+`_resolve_chart_axes` / `_collect_chart_points`；`get_table_schema` →
+`_resolve_schema_target` / `_render_table_columns`；`query_tables` →
+`_render_rows_table` / `_record_table_sources`；`stream_ask` 主循环 →
+`_compose_round_messages` / `_tool_call_key` / `_invoke_tool_call`。
+
+**其他整理**：散落的魔数收进常量区（`PLOT_CACHE_ROWS`、`SANDBOX_ROW_LIMIT`、
+`PLOT_SCAN_ROWS`、`PLOT_MAX_POINTS`、`PLOT_NUMERIC_RATIO`、`SOURCE_TEXT_LIMIT`）；
+连接关闭统一走 `_close_quietly`；删除 `build_system_prompt` 上重复且过期的第二份 docstring。
+
+**验证**：模块导入通过，27 个工具注册正常（含曾因装饰器错位丢失的 `query_tables`）；
+`eval/_test_vectordb.py`、`eval/_test_reason_and_data.py` 全部通过。
+
 ### 2026-09-24（统一上传目录 + Python 查表 + 自动记忆）
 
 > 需求：放在一个统一目录，管理员从后台上传存放到 data 目录；用户问数时**由大模型编写 Python 语句**

@@ -412,7 +412,13 @@ def _file_sources() -> list:
     """
     try:
         from services import spreadsheet, uploads
-        found = list(spreadsheet.discover(TABLE_DATA_DIR))
+        # ``非结构化数据`` 目录还包含项目自带的 *_task.json 题库；JSON 支持扩展后，
+        # 不能把这些内部样例误当成用户上传的数据。该目录仍兼容原有的表格文件，
+        # 而所有扩展格式统一从 data/uploads 进入。
+        legacy_suffixes = (spreadsheet.SUFFIX_EXCEL | spreadsheet.SUFFIX_LEGACY |
+                           spreadsheet.SUFFIX_DELIM)
+        found = [p for p in spreadsheet.discover(TABLE_DATA_DIR)
+                 if p.suffix.lower() in legacy_suffixes]
         upload_dir = uploads.directory()
         if upload_dir.resolve() != TABLE_DATA_DIR.resolve():
             found += [p for p in spreadsheet.discover(upload_dir)
@@ -421,7 +427,10 @@ def _file_sources() -> list:
     except Exception:
         try:
             from services import spreadsheet
-            return list(spreadsheet.discover(TABLE_DATA_DIR))
+            legacy_suffixes = (spreadsheet.SUFFIX_EXCEL | spreadsheet.SUFFIX_LEGACY |
+                               spreadsheet.SUFFIX_DELIM)
+            return [p for p in spreadsheet.discover(TABLE_DATA_DIR)
+                    if p.suffix.lower() in legacy_suffixes]
         except Exception:
             return []
 
@@ -923,6 +932,12 @@ def find_tables(question: str, dataset: str = "", limit: int = 5,
     results = []
     for score, hit_count, item, hits in scored[:limit]:
         results.append(_hit_payload(item, hits, score))
+    # 用户问「上传文件里有什么」时往往不会重复文件名或列名，关键词没有交集是正常的。
+    # 既已明确指定 files，就退回该集合里的表（通常就是刚上传的那一张），避免让模型
+    # 错走知识库；仍由后续 describe_table 核对列名后再执行 SQL。
+    if not results and dataset and _match_dataset(dataset) == FILE_DATASET_KEY:
+        for item in items[:limit]:
+            results.append(_hit_payload(item, ["上传文件"], 0.0))
     return results
 
 

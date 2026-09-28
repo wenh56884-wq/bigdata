@@ -1,8 +1,8 @@
-"""统一上传目录：管理员上传的表格文件集中放在 data/uploads（services/uploads.py）。
+"""统一上传目录：表格、文档与图片集中放在 data/uploads（services/uploads.py）。
 
 设计要点：
 - **一个目录收口**：不管 Excel 还是 CSV，都进 `app/data/uploads/`（可用 UPLOAD_DIR 改），
-  不再散落在各处；表格库（services/tables.py）会连同这个目录一起扫描，上传即可查。
+    不再散落在各处；表格入 SQLite，文档和图片文字进入资料检索库。
 - **落盘即解析**：保存成功后立刻 (1) 解析出「数据卡片」写进记忆 (2) 重建表格索引，
   所以管理员传完文件，用户马上就能问，不需要额外的手工步骤。
 - **文件安全**：只取文件名（防目录穿越）、去掉 Windows 非法字符但**保留中文**，
@@ -14,6 +14,7 @@ CLI：python services/uploads.py            # 列出目录里的文件
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -28,11 +29,13 @@ try:
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from services import spreadsheet
+from services import document_ingest
 
 _LOCK = threading.RLock()
 
 DEFAULT_DIRNAME = "uploads"
-MAX_MB = float(os.getenv("UPLOAD_MAX_MB", "50"))
+# 默认允许较大的业务导出文件；仍可通过 UPLOAD_MAX_MB 按部署环境收紧。
+MAX_MB = float(os.getenv("UPLOAD_MAX_MB", "1024"))
 _ILLEGAL = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 
@@ -69,6 +72,14 @@ def _sha1(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()[:12]
+
+
+def file_kind(path: str | Path) -> str:
+    """返回 table / document / image / unsupported，供列表和 AI 路由使用。"""
+    path = Path(path)
+    if spreadsheet.supported(path):
+        return "table"
+    return document_ingest.kind(path) or "unsupported"
 
 
 # --------------------------------------------------------------------------- #
@@ -133,6 +144,7 @@ def save(upload_name: str, data: bytes) -> dict:
             raise ValueError(f"文件超过 {MAX_MB:.0f} MB 上限（实际 {size / 1024 / 1024:.1f} MB）")
         target.write_bytes(data)
 
+        source_kind = file_kind(target)
         entry = {
             "name": target.name,
             "stored_as": target.name,
@@ -140,32 +152,39 @@ def save(upload_name: str, data: bytes) -> dict:
             "sha1": _sha1(target),
             "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "suffix": target.suffix.lower(),
+            "kind": source_kind,
             "tables": 0,
             "rows": 0,
             "status": "已解析",
             "message": "",
         }
-        try:
-            cards = profile_file(target)
-            entry["tables"] = len(cards)
-            entry["rows"] = sum(c["n_rows"] for c in cards)
-            if not cards:
-                entry["status"] = "未识别"
-                entry["message"] = "没解析出表格（文件为空或格式不支持）"
-            else:
-                # ① 写记忆：这个文件的结构从今往后都在「数据卡片」里
-                from services import table_memory
-                table_memory.remember_table(target.name, cards)
-        except Exception as exc:                       # 解析失败也要保留文件，只是标个状态
-            entry["status"] = "解析失败"
-            entry["message"] = f"{type(exc).__name__}: {exc}"
-
-        # ② 重建表格索引：让 find_table / query_tables 立刻能查到它
-        try:
-            from services import tables
-            tables.build(force=True, quiet=True)
-        except Exception as exc:
-            entry["message"] = (entry["message"] + f"；索引重建失败：{exc}").strip("；")
+        if source_kind == "table":
+            try:
+                cards = profile_file(target)
+                entry["tables"] = len(cards)
+                entry["rows"] = sum(c["n_rows"] for c in cards)
+                if not cards:
+                    entry["status"] = "未识别"
+                    entry["message"] = "没解析出表格（文件为空或格式不支持）"
+                else:
+                    from services import table_memory
+                    table_memory.remember_table(target.name, cards)
+            except Exception as exc:
+                entry["status"] = "解析失败"
+                entry["message"] = f"{type(exc).__name__}: {exc}"
+            try:
+                from services import tables
+                tables.build(force=True, quiet=True)
+            except Exception as exc:
+                entry["message"] = (entry["message"] + f"；索引重建失败：{exc}").strip("；")
+        elif source_kind in {"document", "image"}:
+            result = document_ingest.ingest(target)
+            entry["status"] = "已加入资料库" if result.get("ok") else "提取失败"
+            entry["message"] = result.get("message", "")
+            entry["text_chars"] = result.get("text_chars", 0)
+        else:
+            entry["status"] = "不支持"
+            entry["message"] = "支持表格、PDF、Word、PPT、文本和常见图片格式"
         return entry
 
 
@@ -178,16 +197,89 @@ def list_files() -> list[dict]:
             continue
         try:
             stat = path.stat()
+            source_kind = file_kind(path)
+            status = ""
+            if source_kind in {"document", "image"}:
+                status = "已加入资料库" if document_ingest.indexed(path) else "未提取到文字"
             items.append({
                 "name": path.name,
                 "size": stat.st_size,
                 "uploaded_at": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                 "suffix": path.suffix.lower(),
-                "supported": spreadsheet.supported(path),
+                "kind": source_kind,
+                "status": status,
+                "supported": source_kind != "unsupported",
             })
         except OSError:
             continue
     return items
+
+
+def _quoted_identifier(name: str) -> str:
+    """仅用于从本应用生成的 SQLite 索引中读取物理表。"""
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _table_preview(path: Path, row_limit: int) -> dict:
+    """从现有 SQLite 索引读取表格预览，不重新解析原始大文件。"""
+    from services import tables
+
+    if not tables.DB_PATH.exists():
+        tables.build(quiet=True)
+    if not tables.DB_PATH.exists():
+        return {"sheets": [], "message": "表格索引尚未准备好，请稍后刷新。"}
+
+    uri = f"file:{tables.DB_PATH.as_posix()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        rows = conn.execute(
+            "SELECT table_name, source_id, n_rows, n_cols, columns "
+            "FROM _tables WHERE dataset = ? ORDER BY source_id", ("files",)
+        ).fetchall()
+        prefix = f"{path.name}::"
+        sheets = []
+        for table_name, source_id, n_rows, n_cols, columns_json in rows:
+            if not str(source_id).startswith(prefix):
+                continue
+            columns = json.loads(columns_json or "[]")
+            data_rows = conn.execute(
+                f"SELECT * FROM {_quoted_identifier(table_name)} LIMIT ?", (row_limit,)
+            ).fetchall()
+            source_label = str(source_id)[len(prefix):]
+            sheets.append({
+                "name": source_label.rsplit("#", 1)[-1] if "#" in source_label else (source_label or path.stem),
+                "columns": columns,
+                "rows": [list(row) for row in data_rows],
+                "total_rows": int(n_rows or 0),
+                "total_cols": int(n_cols or len(columns)),
+                "truncated": int(n_rows or 0) > len(data_rows),
+            })
+        return {"sheets": sheets, "message": "" if sheets else "没有可显示的表格数据。"}
+    finally:
+        conn.close()
+
+
+def preview(name: str, row_limit: int = 100, text_limit: int = 16000) -> dict:
+    """返回上传资料的安全预览：表格走索引，文档和图片走已提取文本。"""
+    target = directory() / _safe_name(name)
+    if not target.is_file():
+        raise FileNotFoundError("文件不存在")
+    source_kind = file_kind(target)
+    if source_kind == "table":
+        result = _table_preview(target, max(1, min(int(row_limit), 100)))
+        return {"name": target.name, "kind": source_kind, **result}
+    if source_kind in {"document", "image"}:
+        result = document_ingest.preview_text(target, text_limit)
+        if not result["text"]:
+            result["message"] = "尚未提取到可检索文字。"
+        return {"name": target.name, "kind": source_kind, **result}
+    return {"name": target.name, "kind": source_kind, "message": "此文件类型不支持预览。"}
+
+
+def image_file(name: str) -> Path | None:
+    """返回上传图片的本地路径，供 Web 层以内联方式展示。"""
+    target = directory() / _safe_name(name)
+    return target if target.is_file() and file_kind(target) == "image" else None
 
 
 def delete(name: str) -> bool:
@@ -197,6 +289,7 @@ def delete(name: str) -> bool:
         if not target.is_file():
             return False
         target.unlink()
+        document_ingest.remove(target)
         try:
             from services import table_memory
             table_memory.forget_table(target.name)

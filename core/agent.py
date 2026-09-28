@@ -115,6 +115,14 @@ _WRITE_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# ---- 可调阈值（集中放在这里，避免同一个魔数散落在各个工具里各写一遍）---- #
+PLOT_CACHE_ROWS = 1000      # 缓存给 plot_last_result 的最大行数
+SANDBOX_ROW_LIMIT = 2000    # 注入 Python 沙箱的最大行数
+PLOT_SCAN_ROWS = 200        # 画图时最多扫描的行数
+PLOT_MAX_POINTS = 150       # 一张图最多画多少个数据点
+PLOT_NUMERIC_RATIO = 0.8    # 一列被判定为“数值列”所需的最小可解析比例
+SOURCE_TEXT_LIMIT = 300     # 来源里 SQL / 描述展示的最大字符数
+
 
 def db_config() -> dict:
     """MySQL 连接配置，可用 DB_HOST / DB_PORT / DB_USER / DB_PASSWORD 覆盖（见 .env）。"""
@@ -141,6 +149,14 @@ def db_connect(database: str | None = None):
     if database:
         conf["database"] = database
     return pymysql.connect(**conf)
+
+
+def _close_quietly(conn) -> None:
+    """关闭连接；关闭失败（连接已被服务端断开等）不影响主流程。"""
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 
 def _strip_quoted(sql: str) -> str:
@@ -320,13 +336,13 @@ def record_source(kind: str, name: str, label: str = "", tables: list[str] | Non
                     old["rows"] = rows
                 if detail and detail not in (old.get("detail") or ""):
                     merged = ((old.get("detail") or "") + " · " + detail).strip(" ·")
-                    old["detail"] = merged[:300]
+                    old["detail"] = merged[:SOURCE_TEXT_LIMIT]
                 if sql:
-                    old["sql"] = sql[:300]
+                    old["sql"] = sql[:SOURCE_TEXT_LIMIT]
                 return
         _ROUND_SOURCES.append({
             "kind": kind, "label": label, "name": name, "tables": tables,
-            "rows": rows, "detail": detail[:300], "sql": sql[:300],
+            "rows": rows, "detail": detail[:SOURCE_TEXT_LIMIT], "sql": sql[:SOURCE_TEXT_LIMIT],
         })
 
 
@@ -378,20 +394,105 @@ def execute_sql(sql: str) -> str:
         #    （图表工具复用同一份缓存，画出来的图同样不含明文）
         headers, rows, masked_cols = sanitize.mask_rows(headers, list(rows))
         sanitize_note = sanitize.note_for(masked_cols)
-        # 缓存最近一次查询结果，供 plot_last_result 画图（限制前 1000 行）
+        # 缓存最近一次查询结果，供 plot_last_result 画图
         _LAST_QUERY["headers"] = [str(h) for h in headers]
-        _LAST_QUERY["rows"] = list(rows)[:1000]
+        _LAST_QUERY["rows"] = list(rows)[:PLOT_CACHE_ROWS]
         _LAST_QUERY["db"] = database
         # 数据来源：把“这些数字出自哪个库的哪些表”登记下来，随回答展示给用户
         record_source(
             "database", database,
             label=_DB_SOURCE_LABEL.get(database, "MySQL 业务库"),
-            tables=_sql_tables_used(body, database), rows=len(rows), sql=body[:300],
+            tables=_sql_tables_used(body, database), rows=len(rows), sql=body[:SOURCE_TEXT_LIMIT],
         )
         text = _rows_to_text(headers, rows) + f"\n（在 {database} 库执行）"
         return text + (f"\n{sanitize_note}" if sanitize_note else "")
     except Exception as exc:
         return f"执行失败：{exc}"
+
+
+def _column_index(headers: list[str], name: str) -> int:
+    """按列名取列下标，找不到返回 -1。"""
+    target = (name or "").strip()
+    for i, header in enumerate(headers):
+        if header == target:
+            return i
+    return -1
+
+
+def _is_numeric_column(rows: list, idx: int) -> bool:
+    """一列中能转成 float 的值占比达到 PLOT_NUMERIC_RATIO，才认为它可作数值轴。"""
+    ok = total = 0
+    for row in rows:
+        if idx >= len(row) or row[idx] is None:
+            continue
+        total += 1
+        try:
+            float(str(row[idx]))
+            ok += 1
+        except (TypeError, ValueError):
+            pass
+    return total > 0 and ok >= total * PLOT_NUMERIC_RATIO
+
+
+def _resolve_chart_axes(headers: list[str], rows: list, x_col: str, y_cols: str
+                        ) -> tuple[int, list[int], str]:
+    """挑出横轴 / 纵轴列下标；返回 (横轴, 纵轴列表, 失败原因)，失败原因为空表示成功。
+
+    横轴优先取用户指定的列，否则取第一个非数值列（通常是日期 / 名称）；
+    纵轴取用户指定的数值列，否则取全部数值列（去掉横轴本身）。
+    """
+    numeric = [i for i in range(len(headers)) if _is_numeric_column(rows, i)]
+    if not numeric:
+        return -1, [], "查询结果里没有可绘图的数值列。"
+
+    x_index = _column_index(headers, x_col)
+    if x_index < 0:
+        x_index = next((i for i in range(len(headers)) if i not in numeric), 0)
+
+    y_indexes: list[int] = []
+    if y_cols.strip():
+        for name in y_cols.split(","):
+            j = _column_index(headers, name)
+            if j >= 0 and j != x_index:
+                y_indexes.append(j)
+    if not y_indexes:
+        y_indexes = [i for i in numeric if i != x_index]
+    if not y_indexes:
+        return -1, [], "数值列与横轴列相同，无法成图；请用 y_cols 明确指定要画的数值列。"
+    return x_index, y_indexes, ""
+
+
+def _collect_chart_points(rows: list, x_index: int, y_indexes: list[int]
+                          ) -> tuple[list[str], list[list[float]]]:
+    """扫最近一次查询结果，产出横轴标签与每条曲线的值序列。
+
+    横轴标签去重；任一条曲线在该行解析失败就整行丢弃；点数达 PLOT_MAX_POINTS 即停。
+    """
+    labels: list[str] = []
+    series_values: list[list[float]] = [[] for _ in y_indexes]
+    seen: set[str] = set()
+    for row in rows[:PLOT_SCAN_ROWS]:
+        if x_index >= len(row):
+            continue
+        label = "" if row[x_index] is None else str(row[x_index])
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        point: list[float] = []
+        for j in y_indexes:
+            try:
+                point.append(float(row[j] if j < len(row) else None))
+            except (TypeError, ValueError):
+                point = []
+                break
+        if not point:
+            continue
+        labels.append(label)
+        for values, v in zip(series_values, point):
+            values.append(v)
+        if len(labels) >= PLOT_MAX_POINTS:
+            break
+    return labels, series_values
 
 
 @tool
@@ -411,80 +512,20 @@ def plot_last_result(title: str = "", x_col: str = "", y_cols: str = "") -> str:
         return "暂无可绘图数据：请先用 execute_sql（业务库）或 query_tables（表格库）查询数据，再调用本工具画图。"
     headers, rows = cap["headers"], cap["rows"]
 
-    def _idx(name: str) -> int:
-        name = (name or "").strip()
-        for i, h in enumerate(headers):
-            if h == name:
-                return i
-        return -1
-
-    def _numeric(idx: int) -> bool:
-        ok = tot = 0
-        for r in rows:
-            if idx >= len(r) or r[idx] is None:
-                continue
-            tot += 1
-            try:
-                float(str(r[idx]))
-                ok += 1
-            except (TypeError, ValueError):
-                pass
-        return tot > 0 and ok >= tot * 0.8
-
-    numeric = [i for i in range(len(headers)) if _numeric(i)]
-    if not numeric:
-        return "查询结果里没有可绘图的数值列。"
-    xi = _idx(x_col)
-    if xi < 0:
-        xi = next((i for i in range(len(headers)) if i not in numeric), None)
-        if xi is None:
-            xi = 0
-    yi = []
-    if y_cols.strip():
-        for name in y_cols.split(","):
-            j = _idx(name)
-            if j >= 0 and j != xi:
-                yi.append(j)
-    if not yi:
-        yi = [i for i in numeric if i != xi]
-    if not yi:
-        return "数值列与横轴列相同，无法成图；请用 y_cols 明确指定要画的数值列。"
+    x_index, y_indexes, reason = _resolve_chart_axes(headers, rows, x_col, y_cols)
+    if reason:
+        return reason
 
     try:
         from services import viz
     except ImportError:
         return "可视化不可用：缺少 matplotlib，请先执行 pip install matplotlib。"
 
-    series = [{"name": headers[j], "values": []} for j in yi]
-    x_labels = []
-    seen = set()
-    for r in rows[:200]:
-        if xi >= len(r):
-            continue
-        label = "" if r[xi] is None else str(r[xi])
-        if not label or label in seen:
-            continue
-        seen.add(label)
-        vals = []
-        ok = True
-        for j in yi:
-            v = r[j] if j < len(r) else None
-            try:
-                vals.append(float(v))
-            except (TypeError, ValueError):
-                ok = False
-                break
-        if not ok:
-            continue
-        x_labels.append(label)
-        for s, v in zip(series, vals):
-            s["values"].append(v)
-        if len(x_labels) >= 150:
-            break
-
-    if not x_labels or not any(s["values"] for s in series):
+    x_labels, columns = _collect_chart_points(rows, x_index, y_indexes)
+    if not x_labels or not any(columns):
         return "未能解析出可绘图的数值（请确认查询结果里含数值列）。"
-    chart_title = title or f"{headers[xi]} 与 {' / '.join(s['name'] for s in series)}"
+    series = [{"name": headers[j], "values": values} for j, values in zip(y_indexes, columns)]
+    chart_title = title or f"{headers[x_index]} 与 {' / '.join(s['name'] for s in series)}"
     path = viz.plot_query(chart_title, x_labels, series, ylabel="数值", prefix="chat")
     if not path:
         return "图表生成失败（请确认已安装 matplotlib：pip install matplotlib）。"
@@ -536,6 +577,70 @@ def _resolve_db_name(name: str) -> str | None:
     return _DB_ALIASES.get(key)
 
 
+_KEY_LABELS = {"PRI": "主键", "UNI": "唯一", "MUL": "索引"}
+
+
+def _render_table_columns(cur, db: str, table: str, table_comment: str = "") -> list[str]:
+    """把一张表的列结构渲染成给模型看的 markdown 行：列名 | 类型 | 键/可空/默认/注释。"""
+    cur.execute(
+        "SELECT column_name, column_type, is_nullable, column_key, column_default, "
+        "column_comment FROM information_schema.columns "
+        "WHERE table_schema = %s AND table_name = %s ORDER BY ordinal_position",
+        (db, table),
+    )
+    columns = cur.fetchall()
+    head = f"### {db}.{table}" + (f"（{table_comment}）" if table_comment else "")
+    if not columns:
+        return [head, "- （该表没有任何列）"]
+    lines = [head]
+    for col, ctype, nullable, key, default, col_comment in columns:
+        flags = []
+        if key in _KEY_LABELS:
+            flags.append(_KEY_LABELS[key])
+        if nullable == "NO":
+            flags.append("非空")
+        if default is not None:
+            flags.append(f"默认={default}")
+        if col_comment:
+            flags.append(f"注释:{col_comment}")
+        lines.append(f"- {col} | {ctype} | " + ("/".join(flags) if flags else "-"))
+    return lines
+
+
+def _resolve_schema_target(table: str, database: str) -> tuple[str, str, str]:
+    """把用户给的 (表名, 库名) 解析成 (真实库名, 表名)；定位失败时第三项返回给模型的提示。
+
+    支持三种写法：裸表名（自动归属到唯一所属库）、库名.表名、database 参数。
+    """
+    db_given = _resolve_db_name(database) or ""
+    tbl = (table or "").strip()
+    if "." in tbl:
+        head, _, tail = tbl.partition(".")
+        db_given = db_given or (_resolve_db_name(head) or "")
+        tbl = tail.strip()
+    if db_given:
+        return db_given, tbl, ""
+    if not tbl:
+        return "", "", (
+            "库名没确定。可运行 list_database_tables 查看三个业务库，"
+            "或用 get_table_schema(table='库名.表名') / get_table_schema(database='库名') 明确指定。"
+        )
+
+    # 只给了裸表名：自动归属到唯一所属库
+    owners = _TABLE_DBS.get(tbl.lower())
+    if owners is None:
+        return "", "", (
+            f"在三个业务库里都没找到表 {tbl!r}。可先运行 list_database_tables 查看全部表名，"
+            "或用 库名.表名 / database 参数指明所在库。"
+        )
+    if len(owners) > 1:
+        return "", "", (
+            f"表 {tbl} 在多个库都存在：{', '.join(sorted(owners))}，"
+            "请写成 库名.表名 或传 database 参数指定其中一个。"
+        )
+    return next(iter(owners)), tbl, ""
+
+
 @tool
 def get_table_schema(table: str = "", database: str = "") -> str:
     """读取本地 MySQL 业务库的【真实表结构】：字段名、类型、是否可空、键、默认值与注释，
@@ -548,35 +653,9 @@ def get_table_schema(table: str = "", database: str = "") -> str:
 
     表名列名必须与它返回的真实结构完全一致，禁止凭印象编造列名；
     MySQL 里不存在的表 / 字段会明确提示“查无此列 / 无此表”。"""
-    db_given = _resolve_db_name(database)
-    tbl = (table or "").strip()
-    if "." in tbl:
-        head, _, tail = tbl.partition(".")
-        if not db_given:
-            db_given = _resolve_db_name(head)
-        tbl = tail.strip()
-
-    # 只给了裸表名：优先自动归属到唯一库
-    if not db_given and tbl:
-        owners = _TABLE_DBS.get(tbl.lower())
-        if owners is None:
-            return (
-                f"在三个业务库里都没找到表 {tbl!r}。可先运行 list_database_tables 查看全部表名，"
-                "或用 库名.表名 / database 参数指明所在库。"
-            )
-        if len(owners) == 1:
-            db_given = next(iter(owners))
-        else:
-            return (
-                f"表 {tbl} 在多个库都存在：{', '.join(sorted(owners))}，"
-                "请写成 库名.表名 或传 database 参数指定其中一个。"
-            )
-
-    if not db_given:
-        return (
-            "库名没确定。可运行 list_database_tables 查看三个业务库，"
-            "或用 get_table_schema(table='库名.表名') / get_table_schema(database='库名') 明确指定。"
-        )
+    db_given, tbl, error = _resolve_schema_target(table, database)
+    if error:
+        return error
 
     try:
         conn = db_connect(db_given)
@@ -593,50 +672,17 @@ def get_table_schema(table: str = "", database: str = "") -> str:
             if tbl and tbl.lower() not in {t.lower() for t in tables}:
                 return f"库 {db_given} 中不存在表 {tbl!r}，可用 list_database_tables 查看该库的表。"
 
-            def _describe(name: str) -> list[str]:
-                cur.execute(
-                    "SELECT column_name, column_type, is_nullable, column_key, column_default, "
-                    "column_comment FROM information_schema.columns "
-                    "WHERE table_schema = %s AND table_name = %s ORDER BY ordinal_position",
-                    (db_given, name),
-                )
-                rows = cur.fetchall()
-                out = [f"### {db_given}.{name}" + (f"（{tables[name]}）" if tables.get(name) else "")]
-                for col, ctype, nullable, ckey, default, comment in rows:
-                    parts = [col, ctype]
-                    flags = []
-                    if ckey == "PRI":
-                        flags.append("主键")
-                    elif ckey == "UNI":
-                        flags.append("唯一")
-                    elif ckey == "MUL":
-                        flags.append("索引")
-                    if nullable == "NO":
-                        flags.append("非空")
-                    if default is not None:
-                        flags.append(f"默认={default}")
-                    if comment:
-                        flags.append(f"注释:{comment}")
-                    parts.append("/".join(flags) if flags else "-")
-                    out.append("- " + " | ".join(parts))
-                if not rows:
-                    out.append("- （该表没有任何列）")
-                return out
-
             if tbl:
-                lines = _describe(tbl)
+                lines = _render_table_columns(cur, db_given, tbl, tables.get(tbl, ""))
             else:
                 lines = [f"# 库 {db_given} 共 {len(tables)} 张表："]
                 for name in tables:
-                    lines.extend(_describe(name))
-            return "\n".join(lines)
+                    lines.extend(_render_table_columns(cur, db_given, name, tables.get(name, "")))
+        return "\n".join(lines)
     except Exception as exc:
         return f"读取表结构失败：{exc}"
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        _close_quietly(conn)
 
 
 # --------------------------------------------------------------------------- #
@@ -1109,21 +1155,12 @@ def database_status() -> dict:
 # --------------------------------------------------------------------------- #
 # 工具
 # --------------------------------------------------------------------------- #
-# ---- 数据洞察类工具共享的小部件：库名别名解析 / 逗号分隔列名 ---- #
-_DB_ALIAS = {
-    "finance": "financial_asset_management", "financial": "financial_asset_management",
-    "金融": "financial_asset_management", "financial_asset_management": "financial_asset_management",
-    "healthcare": "healthcare_analytics_competition", "medical": "healthcare_analytics_competition",
-    "医疗": "healthcare_analytics_competition",
-    "healthcare_analytics_competition": "healthcare_analytics_competition",
-    "telecom": "telecom_operations_db", "通信": "telecom_operations_db",
-    "telecom_operations_db": "telecom_operations_db",
-}
+# ---- 数据洞察类工具共享的小部件：列名拆分 ---- #
 
 
-def _resolve_db_name(database: str) -> str:
-    """把 finance / 医疗 这类简称换成真实库名；给不出就原样返回（由下游报错）。"""
-    return _DB_ALIAS.get(str(database or "").strip().lower()) or str(database or "").strip()
+def _coerce_db_name(database: str) -> str:
+    """库名归一化但**不失败**：认得出的换真实库名，认不出的原样返回（由下游报错）。"""
+    return _resolve_db_name(database) or str(database or "").strip()
 
 
 def _split_cols(text: str) -> list[str]:
@@ -1132,7 +1169,7 @@ def _split_cols(text: str) -> list[str]:
     return [p for p in parts if p]
 
 
-def _last_result_rows(limit: int = 2000) -> tuple[list[str], list[dict]]:
+def _last_result_rows(limit: int = SANDBOX_ROW_LIMIT) -> tuple[list[str], list[dict]]:
     """把最近一次查询结果转成 [{列名: 值}]，供 Python 沙箱直接算。
 
     值会被规整成「沙箱友好的类型」：Decimal → float、日期 → 字符串、其余保持原样。
@@ -1197,8 +1234,8 @@ def run_python(code: str) -> str:
     if outcome.get("stdout"):
         lines.append(f"【print 输出】\n{outcome['stdout']}")
     lines.append(f"【计算结果】{outcome.get('result_text')}")
-    if len(rows) >= 2000:
-        lines.append("提示：只注入了前 2000 行，如需全量请先 SQL 聚合。")
+    if len(rows) >= SANDBOX_ROW_LIMIT:
+        lines.append(f"提示：只注入了前 {SANDBOX_ROW_LIMIT} 行，如需全量请先 SQL 聚合。")
     # 结果里可能整行带出姓名/电话/证件号（比如 sorted(rows,…)），与 execute_sql 同一口径脱敏
     return sanitize.mask_text("\n".join(lines))
 
@@ -1215,7 +1252,7 @@ def analyze_data(database: str, table: str, columns: str = "", where: str = "",
     columns 可选，指定要分析的列名，逗号分隔，留空表示自动选全部数值列；
     where 可选过滤条件（如 "PaymentStatus='PAID'"）；sample_limit 抽样行数上限，默认 5000。
     """
-    db = _resolve_db_name(database)
+    db = _coerce_db_name(database)
     try:
         cols = _split_cols(columns) or None
         limit = max(100, min(int(sample_limit or 5000), ml_insight.MAX_SAMPLE))
@@ -1252,7 +1289,7 @@ def detect_data_anomalies(database: str, table: str, value_col: str, label_col: 
     label_col 可选，用来标记异常行的列（如 月份、客户名、订单号），便于读懂是谁异常；
     where 可选过滤条件。
     """
-    db = _resolve_db_name(database)
+    db = _coerce_db_name(database)
     try:
         cols = [value_col] + ([label_col] if label_col else [])
         limit = max(200, min(int(ml_insight.MAX_SAMPLE), 20000))
@@ -1286,7 +1323,7 @@ def cluster_data(database: str, table: str, columns: str, max_k: int = 4, where:
     参数：database 同 analyze_data；table 表名；columns 参与分群的数值列，逗号分隔（建议 2~5 个）；
     max_k 最大簇数，默认 4；where 可选过滤条件。
     """
-    db = _resolve_db_name(database)
+    db = _coerce_db_name(database)
     try:
         cols = _split_cols(columns)
         if len(cols) < 1:
@@ -2042,6 +2079,33 @@ def describe_table(table: str) -> str:
     return "\n".join(lines)
 
 
+def _render_rows_table(columns: list, rows: list, truncated: bool) -> list[str]:
+    """把查询结果渲染成 markdown 表格文本，并附一行行数 / 截断说明。"""
+    lines = [" | ".join(str(c) for c in columns), "-" * 40]
+    lines += [" | ".join("" if cell is None else str(cell) for cell in row) for row in rows]
+    if truncated:
+        lines.append(f"（结果被截断，只显示前 {len(rows)} 行；请用 LIMIT 或聚合把范围缩小。）")
+    else:
+        lines.append(f"（共 {len(rows)} 行）")
+    return lines
+
+
+def _record_table_sources(sql: str, rows: list) -> None:
+    """逐张登记表级出处（数据集名 + 源文件路径），让用户能回溯到原始文件。"""
+    for tid in re.findall(r"\bt_[A-Za-z0-9_]+", sql)[:5]:
+        try:
+            info = tables.table_info(tid) or {}
+        except Exception:
+            info = {}
+        record_source(
+            "tables", tid,
+            label="非结构化表格库 · " + (info.get("dataset_title") or "表格数据"),
+            tables=[tid], rows=info.get("n_rows"),
+            detail=info.get("source_file") or f"共 {len(rows)} 行参与本次回答",
+            sql=sql[:SOURCE_TEXT_LIMIT],
+        )
+
+
 @tool
 def query_tables(sql: str, limit: int = 100) -> str:
     """对「非结构化表格库」执行**只读** SQL（SQLite 方言），返回结果表格。
@@ -2067,35 +2131,17 @@ def query_tables(sql: str, limit: int = 100) -> str:
     sanitize_note = sanitize.note_for(masked_cols)
     # 缓存最近一次表格库查询结果，供 plot_last_result 画图（与 execute_sql 共用同一个缓存槽）
     _LAST_QUERY["headers"] = [str(c) for c in columns]
-    _LAST_QUERY["rows"] = [list(r) for r in rows][:1000]
+    _LAST_QUERY["rows"] = [list(r) for r in rows][:PLOT_CACHE_ROWS]
     _LAST_QUERY["db"] = "tables"
-    lines = [" | ".join(str(c) for c in columns), "-" * 40]
-    for row in rows:
-        lines.append(" | ".join("" if cell is None else str(cell) for cell in row))
-    if truncated:
-        lines.append(f"（结果被截断，只显示前 {len(rows)} 行；请用 LIMIT 或聚合把范围缩小。）")
-    else:
-        lines.append(f"（共 {len(rows)} 行）")
+    lines = _render_rows_table(columns, rows, truncated)
     if sanitize_note:
         lines.append(sanitize_note)
-    # 数据来源：逐张登记表级出处（数据集名 + 源文件路径），用户能回溯到原始文件
-    for tid in re.findall(r"\bt_[A-Za-z0-9_]+", sql)[:5]:
-        try:
-            info = tables.table_info(tid) or {}
-        except Exception:
-            info = {}
-        record_source(
-            "tables", tid,
-            label="非结构化表格库 · " + (info.get("dataset_title") or "表格数据"),
-            tables=[tid], rows=info.get("n_rows"),
-            detail=info.get("source_file") or f"共 {len(rows)} 行参与本次回答",
-            sql=sql[:300],
-        )
+    _record_table_sources(sql, rows)
     return "\n".join(lines)
 
 
-# knowledge/ 目录里有文档才挂载检索工具，避免给 Agent 增加无谓的选项
-RAG_ENABLED = bool(rag_service.files())
+# 检索工具始终挂载：用户可以在服务运行后上传文档或图片，其 OCR/正文会立即进入资料库。
+RAG_ENABLED = True
 TOOLS = (
     _BASE_TOOLS
     + [execute_sql, list_database_tables, get_table_schema]  # 直连 MySQL 三个业务库（只读查询 + 实时表结构）
@@ -2111,7 +2157,7 @@ TOOLS = (
     + ([list_table_sets, analyze_table_query, find_table, describe_table, query_tables]
        if TABLE_ENABLED else [])
     # 非结构化表格库（非结构化数据/ → SQLite）：本地分析 → 召回 → 看列 → 只读 SQL
-    + ([search_knowledge] if RAG_ENABLED else [])
+    + [search_knowledge]
     + [remember, recall, forget]  # 跨会话长期记忆始终可用
 )
 
@@ -2200,7 +2246,7 @@ if TABLE_ENABLED:
         "非结构化表格规则：你还有一套「非结构化表格库」工具（list_table_sets / find_table / "
         "describe_table / query_tables），数据是 非结构化数据/ 目录下解析出来的 700+ 张 markdown / HTML 表格"
         "（咖啡消费、气象、电力与新能源、企业财报、保险、地区经济等）。"
-        "当用户问的是这些表格里的数据时——问题里带表 id（15 位十六进制）、提到「表格 / 这张表 / 第几行第几列」，"
+        "当用户问的是这些表格里的数据时——问题里带表 id（15 位十六进制）、提到「表格 / 这张表 / 第几行第几列 / 上传的文件 / 文件里的数据」，"
         "或者问的领域明显不在 MySQL 三个业务库里——就按这个流程走："
         "① analyze_table_query(问题原文) 先做本地分析（不花钱）：它会给出【数据集判定】【中文术语→英文检索词】"
         "【题型→推荐 SQL 写法】【坑提示】，并直接告诉你下一步怎么调；"
@@ -2250,18 +2296,6 @@ def build_system_prompt(
     合成走 `core/context.compose()`：各块标注优先级，自动跨块去重，
     超过 `CTX_BUDGET` 预算时**从低优先级块开始丢**（`) optional 块先丢`）。
     合成报告留在 `build_system_prompt.last_report`，便于评估脚本统计上下文用量。
-    """
-    """渲染 System Prompt（Dynamic Prompt）。
-
-    - “System Prompt”：把角色 + 工具规则整段作为系统消息固定注入。
-    - “Dynamic Prompt”：同一套模板里留出运行时才有的变量，每次问答前重新渲染：
-
-      * 当前时间 / 星期几 → 问“现在几点”可直接回答，不必等工具；
-      * **本轮执行计划**（planning.Plan）→ 复杂任务先拆解再按步执行，用户能看到进度；
-      * **早期对话摘要**（长会话记忆压缩）→ 上下文既记得住又不爆炸。
-
-    三个参数都有默认值，因此 `build_system_prompt()` 的老用法（固定 system_prompt
-    注入 create_agent）完全不受影响。
     """
     now = now or datetime.now()
     time_text = (
@@ -2348,7 +2382,7 @@ def knowledge_keywords() -> list[str]:
     try:
         for path in rag_service.directory.rglob("*"):
             if path.is_file() and path.suffix.lower() in (".md", ".markdown", ".txt", ".pdf"):
-                sources.add(str(path.relative_to(KNOWLEDGE_DIR)))
+                sources.add(str(path.relative_to(rag_service.directory)))
     except Exception:
         pass
     for source in sources:
@@ -2400,9 +2434,70 @@ def select_tools_for(question: str, task_type: str | None = None) -> tuple[list,
         if not names:
             return list(TOOLS), {"groups": [], "kept": len(TOOLS), "dropped": 0, "reduction": 0.0}
         subset = [tool for tool in TOOLS if tool.name in set(names)]
+        # 用户刚上传的数据不一定会在问题中重复文件名或列名（例如“里面有哪些书”）。
+        # 有上传文件时始终保留表格链路，避免动态裁剪后模型只能去检索知识库。
+        if _uploaded_file_names():
+            required = {"analyze_table_query", "find_table", "describe_table", "query_tables"}
+            existing = {tool.name for tool in subset}
+            subset.extend(tool for tool in TOOLS if tool.name in required and tool.name not in existing)
+            report["uploaded_tables"] = True
+            report["kept"] = len(subset)
+        if _uploaded_document_names():
+            existing = {tool.name for tool in subset}
+            subset.extend(tool for tool in TOOLS if tool.name == "search_knowledge" and tool.name not in existing)
+            report["uploaded_documents"] = True
+            report["kept"] = len(subset)
         return subset, report
     except Exception:
         return list(TOOLS), {"groups": [], "kept": len(TOOLS), "dropped": 0, "reduction": 0.0}
+
+
+def _uploaded_file_names() -> list[str]:
+    """返回已上传的表格文件名；失败时静默降级，不妨碍普通问答。"""
+    try:
+        from services import uploads
+        return [str(item.get("name")) for item in uploads.list_files()
+                if item.get("kind") == "table" and item.get("name")]
+    except Exception:
+        return []
+
+
+def _uploaded_document_names() -> list[str]:
+    """返回已上传的文档和图片名，供资料检索路由使用。"""
+    try:
+        from services import uploads
+        return [str(item.get("name")) for item in uploads.list_files()
+                if item.get("kind") in {"document", "image"} and item.get("name")]
+    except Exception:
+        return []
+
+
+def _uploaded_files_hint() -> str:
+    """把已上传文件作为高优先级数据来源写进当前轮提示词。"""
+    names = _uploaded_file_names()
+    if not names:
+        return ""
+    display = "、".join(names[:8])
+    return (
+        f"【已上传数据文件】当前可查询：{display}。"
+        "用户问上传的文件、文件里的内容、书籍/商品/记录/清单或相关统计时，"
+        "必须先用 find_table(question=用户原问, dataset='files') 查 SQLite 候选表，"
+        "即使问题没有重复文件名或列名也必须查询；随后 describe_table → query_tables 取真实数据再回答。"
+        "此类问题禁止先调用 search_knowledge，也不能说没有上传记录。"
+    )
+
+
+def _uploaded_documents_hint() -> str:
+    """让模型把上传的文档/OCR 图片当成当前可检索资料。"""
+    names = _uploaded_document_names()
+    if not names:
+        return ""
+    return (
+        f"【已上传资料】当前可检索：{'、'.join(names[:8])}。"
+        "用户询问这些文档或图片中的文字、内容、条款、摘要或细节时，必须先调用 "
+        "search_knowledge(query=用户原问) 检索上传资料的提取文本，再依据命中内容回答；"
+        "不得声称无法读取上传资料。"
+    )
 
 
 # 手写 ReAct 循环（流式输出用）的常量
@@ -3594,6 +3689,50 @@ def default_conversation_store() -> ConversationStore:
 # --------------------------------------------------------------------------- #
 # 多会话服务
 # --------------------------------------------------------------------------- #
+def _compose_round_messages(history: list, human, *, digest: str, plan, hint: str,
+                            spec: dict | None, tool_names: list[str]) -> tuple[str, list]:
+    """拼出本轮要发给模型的消息：历史 + 动态 System Prompt + 本轮提问。
+
+    System Prompt 每轮现渲染，依次叠加：早期摘要（记忆压缩）、手动指定的数据范围、
+    本轮执行计划、查询理解结果、树状搜索候选路径（ToT/MCTS）。
+    返回 (system_text, messages)：system_text 单独返回，供上下文度量统计各层占比。
+    """
+    system_text = build_system_prompt(summary=digest or None, tools=tool_names)
+    if hint:
+        system_text += "\n\n" + hint
+    if plan is not None:
+        system_text += "\n\n" + _plan_system_hint(plan)
+    if spec:
+        system_text += "\n\n" + prompting.render(spec)
+    trail = _REASON_TRAIL.pop("last", None)
+    if trail is not None and len(trail.events) > 1:
+        system_text += "\n\n" + trail.render(limit=3)
+    return system_text, [*history, SystemMessage(content=system_text), human]
+
+
+def _tool_call_key(call: dict) -> str:
+    """工具调用的唯一键（工具名 + 规范化后的参数），用于识别「同参数反复调用」。"""
+    return f"{call.get('name', '')}:" + json.dumps(
+        call.get("args") or {}, sort_keys=True, ensure_ascii=False, default=str,
+    )
+
+
+def _invoke_tool_call(call: dict) -> tuple[str, bool]:
+    """执行一个工具调用，返回 (结果文本, 是否成功)。
+
+    工具不存在、工具抛异常都不往上抛，而是转成一段给模型看的中文说明——
+    模型据此自行改写法，比直接中断整轮对话更有用。
+    """
+    name = call.get("name", "")
+    tool = TOOL_MAP.get(name)
+    try:
+        result = tool.invoke(call.get("args") or {}) if tool else f"没有名为 {name} 的工具"
+        ok = bool(tool) and not str(result).startswith("没有名为")
+    except Exception as exc:
+        result, ok = f"调用工具 {name} 失败：{exc}", False
+    return str(result), ok
+
+
 class ChatService:
     """在单个 Agent（单个 Checkpointer）之上管理多个互不干扰的会话线程。"""
 
@@ -3760,7 +3899,8 @@ class ChatService:
         thread_id = self._ensure_thread(thread_id, question)
         config = {"configurable": {"thread_id": thread_id}}
         self.agent  # 预热：缺密钥 / Checkpointer 初始化失败在写响应前就暴露
-        hint = _manual_skill_hint(skill)  # 页面手动选中的技能卡 → 当轮 System Prompt 追加指令
+        hint = "\n\n".join(part for part in (
+            _manual_skill_hint(skill), _uploaded_files_hint(), _uploaded_documents_hint()) if part)
 
         def _generate() -> Iterator[dict]:
             # 让 plan_task / update_plan / remember 等工具知道“现在在哪个会话里执行”
@@ -3852,25 +3992,16 @@ class ChatService:
             spec = _understand_question(question, history)
 
             # ← Dynamic Prompt 每轮现渲染：叠加「当前时间 + 早期摘要 + 本轮计划 + 手动指定数据范围 + 查询理解」
-            tool_names_for_prompt = [tool.name for tool in subset]
-            system_text = build_system_prompt(summary=digest or None,
-                                              tools=tool_names_for_prompt)
-            system_text += ("\n\n" + hint if hint else "")
-            if plan is not None:
-                system_text += "\n\n" + _plan_system_hint(plan)
-            if spec:
-                system_text += "\n\n" + prompting.render(spec)
-            # 树状搜索的候选路线与评分（ToT / MCTS）：让模型知道有哪些备选路径可选
-            trail = _REASON_TRAIL.pop("last", None)
-            if trail is not None and len(trail.events) > 1:
-                system_text += "\n\n" + trail.render(limit=3)
+            human = HumanMessage(content=question)
+            system_text, messages = _compose_round_messages(
+                history, human, digest=digest, plan=plan, hint=hint, spec=spec,
+                tool_names=[tool.name for tool in subset],
+            )
             # 上下文度量：把各层占多少记下来（关 CTX 时 Mirror 仍可统计，开销可忽略）
             meter.record_layer("system", system_text)
             meter.record_layer("history", "".join(getattr(m, "content", "") or ""
                                                   for m in (history or [])))
             meter.record_layer("input", str(question or ""))
-            human = HumanMessage(content=question)
-            messages = [*history, SystemMessage(content=system_text), human]
             persisted = [human]  # 只把“本回合新增”的消息写回 Checkpointer（避免重复）
             answer_parts: list[str] = []
             plan_snapshot = _status_map(plan)
@@ -3962,15 +4093,8 @@ class ChatService:
                             yield {"type": "tool", "name": name, "label": tool_label(name)}
                             if name not in tool_names:
                                 tool_names.append(name)
-                            tool = TOOL_MAP.get(name)
                             # 死循环检测：与上一次完全相同的工具调用连续出现时，在真正执行前拦截
-                            key = (
-                                f"{name}:"
-                                + json.dumps(
-                                    call.get("args") or {},
-                                    sort_keys=True, ensure_ascii=False, default=str,
-                                )
-                            )
+                            key = _tool_call_key(call)
                             repeat_times = repeat_times + 1 if key == last_call_key else 1
                             last_call_key = key
                             if repeat_times >= MAX_REPEAT_TOOL:
@@ -3978,15 +4102,10 @@ class ChatService:
                                     f"模型连续 {MAX_REPEAT_TOOL} 次重复调用工具 {name}（参数完全相同），"
                                     "疑似陷入死循环，已终止；可换一种问法或把任务拆小后再试。"
                                 )
-                            try:
-                                result = tool.invoke(call.get("args") or {}) if tool else f"没有名为 {name} 的工具"
-                                ok = bool(tool) and not str(result).startswith("没有名为")
-                            except Exception as exc:
-                                result = f"调用工具 {name} 失败：{exc}"
-                                ok = False
+                            result, ok = _invoke_tool_call(call)
                             # 上下文度量：工具调用质量（失败率 / 同参数重试率）
                             meter.record_tool(name, call.get("args") or {}, ok)
-                            meter.record_layer("tool_result", str(result))
+                            meter.record_layer("tool_result", result)
                             tool_message = ToolMessage(content=str(result), tool_call_id=call.get("id"))
                             messages.append(tool_message)
                             persisted.append(tool_message)
