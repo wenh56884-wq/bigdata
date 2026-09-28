@@ -106,6 +106,7 @@
       background: var(--panel);
       border-right: 1px solid var(--line);
       display: flex; flex-direction: column; padding: 16px 12px 12px;
+      height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden;
     }
     .brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px 14px; }
     .brand .logo {
@@ -593,7 +594,7 @@
       .badge-btn b { color: var(--accent); font-weight: 500; }
 
       /* ---------- 消息区 ---------- */
-      .msgs-inner { max-width: 840px; padding: 28px 24px 16px; }
+      .msgs-inner { width: 100%; max-width: 1280px; padding: 28px 24px 16px; }
       .msg { margin: 0 0 26px; }
       .msg .avatar {
         width: 30px; height: 30px; border-radius: 50%; background: var(--grad);
@@ -654,7 +655,7 @@
         flex: none; position: sticky; bottom: 0; z-index: 6; padding: 8px 24px 18px;
         background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 0%, transparent), var(--bg) 26%);
       }
-      .composer-wrap { max-width: calc(840px + 48px); }
+      .composer-wrap { width: 100%; max-width: 1280px; }
       .composer-inner {
         background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
         padding: 10px 12px 8px; box-shadow: var(--shadow-md);
