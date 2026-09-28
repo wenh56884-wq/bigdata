@@ -111,9 +111,22 @@ class WorkspaceAgentState(AgentState):
 
 
 def _remember_qa_safely(question: str, answer: str, thread_id: str) -> None:
-    """问答学习是增强能力，写盘异常不能影响本轮已经完成的回答。"""
+    """问答学习是增强能力，写盘异常不能影响本轮已经完成的回答。
+
+    除了问题与回答，还会把本轮最后一条跑通的查询（SQL / Python）一并沉淀，
+    后续用户问到相似问题时，自动学习知识库与表格记忆都能给出可复用写法。
+    """
     try:
-        knowledge_learning.remember_qa(question, answer, thread_id)
+        last = _LAST_QUERY_CTX.get()
+        query = str(last.get("query") or "").strip()
+        table = str(last.get("table") or "").strip()
+        kind = str(last.get("kind") or "").strip()
+        knowledge_learning.remember_qa(question, answer, thread_id,
+                                       query=query, table=table, kind=kind)
+        # 上传文件/表格库的 SQL 查询额外进入表格经验，find_table 会直接回显给模型复用。
+        if kind == "table_sql" and query:
+            from services.datasource import table_memory
+            table_memory.remember_query(question, query, table=table, answer=answer, kind="sql")
     except Exception:
         pass
 
@@ -292,6 +305,15 @@ def _rows_to_text(headers: list[str], rows: list[tuple], shown: int = 200) -> st
 # “最近一次成功查询”缓存：execute_sql / query_tables 写入，plot_last_result 据此画图
 _LAST_QUERY: dict = {"headers": [], "rows": [], "db": ""}
 
+# 本轮成功查询（用于自动学习时把“问题→回答→有效SQL/Python”一起落盘）。
+# 用 ContextVar 避免并发会话之间互相污染。
+_LAST_QUERY_CTX: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "wh_last_query", default={"kind": "", "query": "", "table": ""})
+
+
+def _set_last_query(kind: str, query: str, table: str = "") -> None:
+    _LAST_QUERY_CTX.set({"kind": kind, "query": str(query or ""), "table": str(table or "")})
+
 
 # --------------------------------------------------------------------------- #
 # 数据来源（Provenance）：本轮回答真正用到的数据出处，随回答一起回给前端展示
@@ -442,6 +464,7 @@ def execute_sql(sql: str) -> str:
             tables=_sql_tables_used(body, database), rows=len(rows), sql=body[:SOURCE_TEXT_LIMIT],
         )
         text = _rows_to_text(headers, rows) + f"\n（在 {database} 库执行）"
+        _set_last_query("mysql", body, database)
         return text + (f"\n{sanitize_note}" if sanitize_note else "")
     except Exception as exc:
         return f"执行失败：{exc}"
@@ -751,6 +774,14 @@ _TABLE_SKILL_META: dict[str, tuple[str, tuple[str, ...]]] = {
     # guide 放在最后：它的别名最宽（“表格/非结构化”），应当让具体数据集名先匹配
     "guide": ("非结构化表格 · 查询指南", ("guide", "指南", "表格指南", "非结构化", "表格", "tables", "table")),
 }
+# 第三类技能卡：通用分析能力（skills/general/），不属于“查哪个库”，而是“用哪类能力完成”。
+GENERAL_SKILLS_DIR = PROJECT_ROOT / "skills" / "general"
+_GENERAL_SKILL_META: dict[str, tuple[str, tuple[str, ...]]] = {
+    "visualization": ("数据分析 · 图表可视化", ("可视化", "画图", "图表", "走势图", "占比图", "viz", "chart")),
+    "forecast": ("机器学习 · 趋势预测", ("预测", "机器学习", "趋势预测", "未来趋势", "forecast", "ml")),
+    "knowledge": ("知识库 · 文档问答", ("知识库", "文档问答", "资料检索", "手册", "faq", "政策", "knowledge")),
+    "analytics": ("统计分析 · Python 二次计算", ("统计分析", "数据分析", "异常检测", "聚类", "python", "同比环比", "相关分析")),
+}
 _skill_cache: dict[Path, tuple[float, str]] = {}
 
 
@@ -789,6 +820,25 @@ def _match_table_skill_key(name: str) -> str | None:
     return None
 
 
+def _match_general_skill_key(name: str) -> str | None:
+    """把名字归一化成通用能力技能卡 key（visualization / forecast / knowledge / analytics）。"""
+    text = (name or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not text:
+        return None
+    for key in _GENERAL_SKILL_META:
+        if text == key or key in text or text in key:
+            return key
+    for key, (title, aliases) in _GENERAL_SKILL_META.items():
+        low_aliases = [a.lower() for a in aliases] + [title.lower()]
+        if any(a and a == text for a in low_aliases):
+            return key
+    for key, (title, aliases) in _GENERAL_SKILL_META.items():
+        low_aliases = [a.lower() for a in aliases] + [title.lower()]
+        if any(a and (a in text or text in a) for a in low_aliases):
+            return key
+    return None
+
+
 def _match_skill(name: str) -> tuple[str, str] | None:
     """统一解析技能卡名字，返回 (类别, key)：("database", 库名) 或 ("tables", 数据集名)。"""
     key = _match_db_skill_key(name)
@@ -797,11 +847,15 @@ def _match_skill(name: str) -> tuple[str, str] | None:
     key = _match_table_skill_key(name)
     if key:
         return ("tables", key)
+    key = _match_general_skill_key(name)
+    if key:
+        return ("general", key)
     return None
 
 
 def _skill_path(family: str, key: str) -> Path:
-    return (SKILLS_DIR if family == "database" else TABLE_SKILLS_DIR) / f"{key}.md"
+    directory = {"database": SKILLS_DIR, "tables": TABLE_SKILLS_DIR, "general": GENERAL_SKILLS_DIR}[family]
+    return directory / f"{key}.md"
 
 
 def _read_skill(family: str, key: str) -> str | None:
@@ -823,7 +877,7 @@ def _read_skill(family: str, key: str) -> str | None:
 
 
 def list_db_skills() -> str:
-    """列出全部可用技能卡（业务库 + 非结构化表格两族），供无参调用与排错时展示。"""
+    """列出全部可用技能卡（业务库 / 非结构化表格 / 通用分析能力三类），供无参调用与排错时展示。"""
     lines = ["【MySQL 业务库技能卡】"]
     for key, (title, _) in _DB_SKILL_META.items():
         exists = "有" if (SKILLS_DIR / f"{key}.md").exists() else "缺"
@@ -832,13 +886,18 @@ def list_db_skills() -> str:
     for key, (title, _) in _TABLE_SKILL_META.items():
         exists = "有" if (TABLE_SKILLS_DIR / f"{key}.md").exists() else "缺"
         lines.append(f"- {key}（{title}）：{exists}")
+    lines.append("【通用分析技能卡】")
+    for key, (title, _) in _GENERAL_SKILL_META.items():
+        exists = "有" if (GENERAL_SKILLS_DIR / f"{key}.md").exists() else "缺"
+        lines.append(f"- {key}（{title}）：{exists}")
     return "\n".join(lines)
 
 
 def db_skill_cards() -> list[dict]:
     """技能卡元数据（key + 中文名 + 是否就绪 + 类别），供 Web 端“手动指定技能卡”下拉动态填充。
 
-    两个类别：kind=database（MySQL 三个业务库）与 kind=tables（非结构化表格库）。
+    三个类别：kind=database（MySQL 业务库）、kind=tables（非结构化表格库）、
+    kind=general（可视化 / 预测 / 知识库 / 统计分析等通用能力）。
     """
     cards = [
         {"key": key, "title": title, "kind": "database",
@@ -850,11 +909,16 @@ def db_skill_cards() -> list[dict]:
          "ready": (TABLE_SKILLS_DIR / f"{key}.md").exists()}
         for key, (title, _) in _TABLE_SKILL_META.items()
     ]
+    cards += [
+        {"key": key, "title": title, "kind": "general",
+         "ready": (GENERAL_SKILLS_DIR / f"{key}.md").exists()}
+        for key, (title, _) in _GENERAL_SKILL_META.items()
+    ]
     return cards
 
 
 def _manual_skill_hint(name: str) -> str:
-    """用户在 Web 页面上手动选定某库技能卡 → 生成追加到当轮 System Prompt 的强制指令。
+    """用户在 Web 页面上手动选定某项技能卡 → 生成追加到当轮 System Prompt 的强制指令。
 
     返回空串表示“未指定 / 未识别”，走原来的“Agent 自己判断属于哪个库”默认流程。
     """
@@ -870,6 +934,13 @@ def _manual_skill_hint(name: str) -> str:
             f"再以 get_table_schema 返回的真实表结构为准查询，不要自行切换到其他库；"
             "仅当用户明确要求“跨库对比 / 三库分别统计 / 换成另一个库”时才按新指示执行。"
         )
+    if family == "general":
+        title = _GENERAL_SKILL_META[key][0]
+        return (
+            f"【手动指定技能卡】用户已在页面上把本次回答的处理方式指定为「{title}」。"
+            f"先调用 get_db_skill(database='{key}') 加载该技能卡，并优先按其中约定的工具与流程完成；"
+            "当用户问题明显不属于该技能范围时，可先说明原因，再按正常能力处理。"
+        )
     title = _TABLE_SKILL_META[key][0]
     scope = ("三个数据集的全部表格" if key == "guide"
              else f"数据集 {key} 里的表格")
@@ -884,7 +955,7 @@ def _manual_skill_hint(name: str) -> str:
 
 @tool
 def get_db_skill(database: str = "") -> str:
-    """加载查询技能卡（人工整理的口径、易错点与模板 SQL），两族都能加载：
+    """加载技能卡（人工整理的口径、易错点、工具流程与模板），三类都能加载：
 
     ① **MySQL 业务库**（financial_asset_management 金融 / healthcare_analytics_competition 医疗 /
        telecom_operations_db 通信）：八张表速览、字段取值与业务口径、易错点、模板 SQL；
@@ -892,10 +963,12 @@ def get_db_skill(database: str = "") -> str:
     ② **非结构化表格库**（guide 查询指南 / table_query 表格查询 / domain_ops 领域运算 /
        multi_step 多步检索）：库结构、表 id 规则、数值清洗约定、召回流程、实测易错点与模板 SQL；
        加载后按 find_table → describe_table → query_tables 走。
+    ③ **通用分析能力**（visualization 图表 / forecast 预测 / knowledge 知识库 / analytics 统计分析）：
+       各技能卡会写明应优先使用哪些工具及调用顺序，加载后按其约定执行。
 
-    参数 database：库名 / 数据集 key / 中文别名（如 '医疗'、'表格'、'多步检索'），留空返回全部技能卡清单。
-    注意：技能卡仅供参考，与 get_table_schema（业务库）或 describe_table（表格库）返回的实时信息冲突时，
-    一律以实时信息为准。"""
+    参数 database：库名 / 数据集 key / 能力 key / 中文别名（如 '医疗'、'表格'、'多步检索'、'预测'），
+    留空返回全部技能卡清单。
+    注意：技能卡仅供参考，与实时表结构、数据库结构或工具实际返回冲突时，一律以实时信息为准。"""
     match = _match_skill(database)
     if not match:
         return "没有匹配到技能卡，可用的库与技能卡：\n" + list_db_skills()
@@ -906,10 +979,15 @@ def get_db_skill(database: str = "") -> str:
             f"技能卡文件不存在或读取失败：{_skill_path(family, key)}\n"
             f"可用技能卡：\n{list_db_skills()}"
         )
-    title = (_DB_SKILL_META if family == "database" else _TABLE_SKILL_META)[key][0]
-    tip = ("写 SQL 前仍以 get_table_schema 返回的真实表结构为最终依据；冲突时一律以真实结构为准。"
-           if family == "database" else
-           "写 SQL 前仍以 describe_table 返回的实时列名与数值列为准；冲突时一律以实时信息为准。")
+    if family == "database":
+        title = _DB_SKILL_META[key][0]
+        tip = "写 SQL 前仍以 get_table_schema 返回的真实表结构为最终依据；冲突时一律以真实结构为准。"
+    elif family == "tables":
+        title = _TABLE_SKILL_META[key][0]
+        tip = "写 SQL 前仍以 describe_table 返回的实时列名与数值列为准；冲突时一律以实时信息为准。"
+    else:
+        title = _GENERAL_SKILL_META[key][0]
+        tip = "本卡说明该能力的标准流程与工具调用方式；如与工具实际返回冲突，以实际返回为准。"
     return f"# 技能卡：{title}（{key}）\n\n> 提示：本卡为人工整理的口径与模板，{tip}\n\n" + text
 
 
@@ -1435,9 +1513,10 @@ def query_table_python(code: str, table: str = "", question: str = "") -> str:
     if question or code:
         try:
             from services.datasource import table_memory
-            table_memory.remember_query(question or "(未注明问题)", code, table=used)
+            table_memory.remember_query(question or "(未注明问题)", code, table=used, kind="code")
         except Exception:
             pass
+    _set_last_query("table_python", code, used)
     return sanitize.mask_text(text)
 
 
@@ -2174,6 +2253,7 @@ def query_tables(sql: str, limit: int = 100) -> str:
     if sanitize_note:
         lines.append(sanitize_note)
     _record_table_sources(sql, rows)
+    _set_last_query("table_sql", sql)
     return "\n".join(lines)
 
 
@@ -2518,7 +2598,8 @@ def _uploaded_files_hint() -> str:
     return (
         f"【已上传数据文件】当前可查询：{display}。"
         "用户问上传的文件、文件里的内容、书籍/商品/记录/清单或相关统计时，"
-        "必须先用 find_table(question=用户原问, dataset='files') 查 SQLite 候选表，"
+        "必须先用 find_table(question=用户原问, dataset='files') 查 SQLite 候选表；如果 find_table 返回【记忆：以前这样查过】，优先复用其中的 SQL/Python 写法；"
+        "若问题还缺统计口径、时间范围或排序方式，先结合表结构给出合理口径并说明，必要时简短追问一句，不要直接全表扫描；"
         "即使问题没有重复文件名或列名也必须查询；随后 describe_table → query_tables 取真实数据再回答。"
         "此类问题禁止先调用 search_knowledge，也不能说没有上传记录。"
     )

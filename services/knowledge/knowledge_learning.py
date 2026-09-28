@@ -85,10 +85,17 @@ def forget_table_upload(file_name: str) -> None:
             pass
 
 
-def remember_qa(question: str, answer: str, thread_id: str = "") -> str | None:
-    """追加一条已完成的问答，供后续相似问题检索参考。"""
+def remember_qa(question: str, answer: str, thread_id: str = "", query: str = "",
+               table: str = "", kind: str = "") -> str | None:
+    """追加一条已完成的问答，供后续相似问题检索参考。
+
+    query / table / kind 是可选的有效查询沉淀：把这一轮真正跑通的 SQL、Python 或
+    检索关键词一并写进知识库，后续用户问类似问题时，检索结果里会带着这条可复用写法。
+    """
     question = sanitize.mask_text(str(question or "").strip())
     answer = sanitize.mask_text(str(answer or "").strip())
+    query = sanitize.mask_text(str(query or "").strip())
+    table = sanitize.mask_text(str(table or "").strip())
     if not question or not answer:
         return None
     now = datetime.now()
@@ -101,8 +108,17 @@ def remember_qa(question: str, answer: str, thread_id: str = "") -> str | None:
         "",
         "### 回答",
         answer,
-        "",
     ]
+    if query:
+        lines += [
+            "",
+            "### 有效查询（后续相似问题可复用）",
+            f"类型：{kind or '查询'}" + (f"；数据对象：{table}" if table else ""),
+            "```",
+            query,
+            "```",
+        ]
+    lines.append("")
     text = "\n".join(lines)
     with _LOCK:
         target = _qa_path(now)

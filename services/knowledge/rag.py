@@ -93,7 +93,10 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 # 中文友好的轻量分词：拉丁词整体保留；中文段拆成「单字 + 相邻双字」
 # --------------------------------------------------------------------------- #
 def tokenize(text: str) -> list[str]:
-    """把文本切成可匹配的 token 列表（重复保留，用于词频统计）。"""
+    """把文本切成可匹配的 token 列表（重复保留，用于词频统计）。
+
+    该函数保留旧行为，供长期记忆等模块复用；关键词检索请使用 ``keyword_tokenize``。
+    """
     tokens: list[str] = []
     for segment in _TOKEN_RE.findall(text.lower()):
         if _CJK_RE.match(segment):
@@ -103,6 +106,52 @@ def tokenize(text: str) -> list[str]:
         else:
             tokens.append(segment)
     return tokens
+
+
+_CJK_STOP_CHARS = set("的了是在我你他她它这那吗呢吧啊哦与及或就都也很只个对为被把让到着说从和")
+
+
+def keyword_tokenize(text: str) -> list[str]:
+    """关键词检索引擎专用分词，偏向精确匹配。
+
+    与旧版 tokenize 的区别：
+    1. 中文单字会保留，但过滤明显无实义的虚词；
+    2. 额外生成相邻双字、三字词，以及长度 2~6 的整段短语，增强精确命中；
+    3. 拉丁字母/数字/下划线仍作为一个完整 token。
+    """
+    tokens: list[str] = []
+    for segment in _TOKEN_RE.findall((text or "").lower()):
+        if _CJK_RE.match(segment):
+            n = len(segment)
+            tokens.extend(ch for ch in segment if ch not in _CJK_STOP_CHARS)
+            if n >= 2:
+                tokens.extend(
+                    segment[i:i + 2] for i in range(n - 1)
+                    if not all(ch in _CJK_STOP_CHARS for ch in segment[i:i + 2])
+                )
+            if n >= 3:
+                tokens.extend(
+                    segment[i:i + 3] for i in range(n - 2)
+                    if not all(ch in _CJK_STOP_CHARS for ch in segment[i:i + 3])
+                )
+            if 2 <= n <= 6:
+                tokens.append(segment)  # 整段短语：只有原文连续出现完全相同片段才命中
+        else:
+            tokens.append(segment)
+    return tokens
+
+
+def _kw_term_weight(token: str) -> float:
+    """关键词向量中的词项权重：更长的中文短语更具体，单字最容易被误命中。"""
+    if len(token) == 1:
+        return 0.18 if _CJK_RE.match(token) else 0.5
+    if len(token) == 2:
+        return 1.0
+    if len(token) == 3:
+        return 1.35
+    if 4 <= len(token) <= 6 and _CJK_RE.match(token):
+        return 1.55
+    return 1.0
 
 
 # --------------------------------------------------------------------------- #
@@ -153,10 +202,11 @@ def chunk_text(text: str, size: int | None = None, overlap: int | None = None) -
 # 检索引擎 1：零依赖 TF-IDF 余弦检索（keyword，恒可用）
 # --------------------------------------------------------------------------- #
 class _KeywordRetriever(BaseRetriever):
-    """基于 TF-IDF 向量 + 余弦相似度的轻量检索器（BaseRetriever 子类）。
+    """基于加权 TF-IDF 向量 + 余弦相似度的轻量检索器（BaseRetriever 子类）。
 
-    语料规模较小时足够准确，且不依赖任何第三方向量库 / embedding 服务。
-    ``rank()`` 会返回全部候选的余弦分数，供上层做多路融合（RRF）。
+    关键词 token 使用中文双字/三字词与整段短语作为主信号，单字做低权重补充，
+    并过滤常见虚词；最后按查询命中覆盖率做轻度惩罚，优先返回更完整的命中。
+    ``rank()`` 会返回全部候选的加权相关度，供上层做多路融合（RRF）。
     """
 
     documents: list[Document] = Field(default_factory=list)
@@ -172,7 +222,7 @@ class _KeywordRetriever(BaseRetriever):
 
         df: dict[str, int] = {}
         for doc in documents:
-            for tok in set(tokenize(doc.page_content)):
+            for tok in set(keyword_tokenize(doc.page_content)):
                 df[tok] = df.get(tok, 0) + 1
         # 平滑 IDF：log((N+1)/(df+1)) + 1，避免除零并保证未见词也有权重
         self.idf_map = {tok: math.log((n_docs + 1) / (freq + 1)) + 1.0 for tok, freq in df.items()}
@@ -182,9 +232,13 @@ class _KeywordRetriever(BaseRetriever):
         self.doc_norms = []
         for doc in documents:
             counts: dict[str, int] = {}
-            for tok in tokenize(doc.page_content):
+            for tok in keyword_tokenize(doc.page_content):
                 counts[tok] = counts.get(tok, 0) + 1
-            norm = math.sqrt(sum((freq * self._idf(tok)) ** 2 for tok, freq in counts.items()))
+            # 文档向量同时计入词频、IDF 与词项精确度权重
+            norm = math.sqrt(sum(
+                (freq * self._idf(tok) * _kw_term_weight(tok)) ** 2
+                for tok, freq in counts.items()
+            ))
             self.doc_counts.append(counts)
             self.doc_norms.append(norm)
 
@@ -201,21 +255,29 @@ class _KeywordRetriever(BaseRetriever):
             return []
 
         q_counts: dict[str, int] = {}
-        for tok in tokenize(query):
+        for tok in keyword_tokenize(query):
             q_counts[tok] = q_counts.get(tok, 0) + 1
-        q_vec = {tok: freq * self._idf(tok) for tok, freq in q_counts.items()}
+        q_vec = {tok: freq * self._idf(tok) * _kw_term_weight(tok) for tok, freq in q_counts.items()}
         q_norm = math.sqrt(sum(w * w for w in q_vec.values())) or 1.0
+        n_query_terms = len(q_vec)
 
         scored: list[tuple[float, int]] = []
         for idx, counts in enumerate(self.doc_counts):
             total = 0.0
+            matched_terms = 0
             for tok, w_query in q_vec.items():
                 freq = counts.get(tok)
                 if freq:
-                    total += w_query * freq * self._idf(tok)  # 等价于查询向量 · 文档向量
+                    matched_terms += 1
+                    # 查询向量 · 文档向量，词项精确度权重参与两边计算
+                    total += w_query * freq * self._idf(tok) * _kw_term_weight(tok)
             norm = self.doc_norms[idx]
             if norm > 0 and total > 0:
-                scored.append((total / (q_norm * norm), idx))
+                cosine = total / (q_norm * norm)
+                coverage = matched_terms / n_query_terms
+                # 命中覆盖率惩罚：只命中零散单字的文档会被明显降权
+                precise_score = cosine * (0.45 + 0.55 * coverage)
+                scored.append((precise_score, idx))
         scored.sort(key=lambda item: item[0], reverse=True)
         return scored
 

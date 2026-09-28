@@ -158,10 +158,15 @@ def cards_text(limit_chars: int = MAX_CARD_CHARS) -> str:
 # ② 问答经验：问什么 → 用什么表 → 怎么写
 # --------------------------------------------------------------------------- #
 def remember_query(question: str, code: str, table: str = "", file_name: str = "",
-                   ok: bool = True) -> None:
-    """沉淀一次查询经验（只记成功的，失败的记下来只会误导下一次）。"""
+                   ok: bool = True, answer: str = "", kind: str = "code") -> None:
+    """沉淀一次查询经验（只记成功的，失败的记下来只会误导下一次）。
+
+    kind：code=Python/pandas 写法，sql=SQL 查询；answer 可把最终回答要点一并记下，
+    后续 recall_text 会连同答案一起回给模型，便于直接复用。
+    """
     if not ok or not (question and code):
         return
+    answer = sanitize.mask_text(str(answer or "").strip())[:500]
     with _LOCK:
         data = _load()
         item = {
@@ -169,6 +174,8 @@ def remember_query(question: str, code: str, table: str = "", file_name: str = "
             "code": str(code)[:1200],
             "table": str(table or ""),
             "file": str(file_name or ""),
+            "kind": str(kind or "code"),
+            "answer": answer,
             "at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "hits": 1,
         }
@@ -177,6 +184,9 @@ def remember_query(question: str, code: str, table: str = "", file_name: str = "
             if old.get("question") == item["question"] and old.get("code") == item["code"]:
                 old["hits"] = int(old.get("hits", 1)) + 1
                 old["at"] = item["at"]
+                if item["answer"] and not old.get("answer"):
+                    old["answer"] = item["answer"]
+                old["kind"] = item["kind"] or old.get("kind", "code")
                 _save(data)
                 return
         data["experiences"].append(item)
@@ -214,7 +224,10 @@ def recall_text(question: str, limit: int = MAX_RECALL) -> str:
             head += f" 用表 {item['table']}"
         head += f"（用过 {item.get('hits', 1)} 次）"
         lines.append(head)
-        lines.append("  当时代码：" + " ".join(str(item["code"]).split())[:300])
+        label = "SQL" if item.get("kind") == "sql" else "Python"
+        lines.append(f"  当时{label}：" + " ".join(str(item["code"]).split())[:300])
+        if item.get("answer"):
+            lines.append("  当时答案要点：" + " ".join(str(item["answer"]).split())[:220])
     return "\n".join(lines)
 
 

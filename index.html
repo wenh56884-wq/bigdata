@@ -1108,12 +1108,12 @@
           <div class="composer-inner">
             <textarea id="question" rows="1" placeholder="给九天梧桐发送消息…（Enter 发送，Shift+Enter 换行）" aria-label="问题"></textarea>
             <div class="composer-bar">
-              <select class="skill-select" id="skill" aria-label="数据技能卡（手动指定按哪个库查询）" title="手动指定数据技能卡：回答将优先按所选库加载技能卡并查询；留空则自动识别">
-                <option value="">数据技能卡：自动识别</option>
+              <select class="skill-select" id="skill" aria-label="技能卡（手动指定处理方式）" title="手动指定技能卡：回答将优先按所选技能或库执行；留空则自动识别">
+                <option value="">技能卡：自动识别</option>
               </select>
               <label class="proc-toggle"><input type="checkbox" id="show-proc">显示过程</label>
               <label class="proc-toggle" id="deep-label"><input type="checkbox" id="deep-mode"><span id="deep-text">深度搜索</span></label>
-              <span class="hint">技能卡 = 指定按所选库查数据 · 深度搜索 = 多轮检索综合回答</span>
+              <span class="hint">技能卡 = 指定库或能力执行 · 深度搜索 = 多轮检索综合回答</span>
               <button class="send" id="send" type="submit" disabled aria-label="发送">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4.5 19.5 20 12 4.5 4.5l2.1 7.5-2.1 7.5Z" fill="currentColor"/></svg>
               </button>
