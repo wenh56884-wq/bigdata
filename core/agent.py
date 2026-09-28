@@ -65,6 +65,7 @@ from core import context  # 上下文工程：提示分层合成 / 工具动态�
 from services import tables  # 非结构化表格：把 非结构化数据/ 的 markdown/HTML 表格与 Excel/CSV 文件解析成可 SQL 查询的 SQLite
 from services import ml_forecast  # sklearn 月度业务指标预测（三个库）
 from services import sanitize  # 输出脱敏：结果集预处理 + 回答 / 流式文本兜底，避免个人信息出现在回答里
+from services import knowledge_learning  # 自动沉淀上传摘要与已完成问答，供后续知识检索使用
 from services import pysandbox  # 受限 Python 计算沙箱：给 Agent 一个「用 Python 算」的能力
 from services import ml_insight  # 数据洞察：统计画像 / 相关分析 / 异常检测 / 聚类挖掘
 
@@ -79,6 +80,14 @@ TITLE_MAX_LEN = 20
 
 # 全局共享的知识库服务（knowledge/ 目录，懒构建索引）
 rag_service = RagService()
+
+
+def _remember_qa_safely(question: str, answer: str, thread_id: str) -> None:
+    """问答学习是增强能力，写盘异常不能影响本轮已经完成的回答。"""
+    try:
+        knowledge_learning.remember_qa(question, answer, thread_id)
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -4132,6 +4141,8 @@ class ChatService:
                 return
 
             answer = sanitize.mask_text("".join(answer_parts))
+            # 只沉淀成功完成的问答，避免将报错或中间过程写入知识库并误导后续检索。
+            _remember_qa_safely(question, answer, thread_id)
             meter.record_layer("output", answer)          # 上下文度量：本轮最终产出
             meter.notes["prompt_report"] = build_system_prompt.last_report or {}
             context.persist(meter.summary())              # CTX_STATS=1 时落盘，供跨版本对比
@@ -4194,6 +4205,8 @@ class ChatService:
                 return
 
             messages_now = self.history(thread_id)
+            # 深度搜索同样是一次完整问答，统一进入自动学习知识库。
+            _remember_qa_safely(question, answer, thread_id)
             # 深度搜索的 sources 是知识库证据片段，同样落盘，刷新页面还能看到出处
             patch = {"updated_at": _now(), "message_count": len(messages_now), "sources": sources}
             info = self.store.get(thread_id) or {}

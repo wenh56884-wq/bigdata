@@ -1,9 +1,12 @@
-# LangChain Agent Demo（多会话版）
+# 九天梧桐 AI 工作台
 
-一个最简的 **LangChain 1.x ReAct Agent** 示例，包含 3 个基础工具：
+一个本地运行的多会话 AI 数据工作台，基于 **LangChain 1.x ReAct Agent** 构建。它既能处理日常问答、计算和知识库检索，也能安全查询本机业务库、非结构化表格与上传的数据文件。
+
+基础能力包括：
 - `calculator` —— 安全地计算数学表达式
 - `get_current_time` —— 获取当前时间
 - `word_count` —— 统计中文字符 / 英文词数
+- `run_python` / `query_table_python` —— 在受限沙箱中进行计算与 DataFrame 分析
 
 以及 **RAG 知识库问答**：只要在 `knowledge/` 目录放入 `.md/.txt/.pdf` 文档
 （支持子目录），Agent 会自动挂载 `search_knowledge` 检索工具，可结合文档回答
@@ -28,7 +31,7 @@ SQLite（120,328 行），Agent 用只读 SQL 直接问答，并配套四张查�
 以及完整的 **Agent = LLM(大脑) + Planning(规划) + Tool use(执行) + Memory(记忆)** 架构：
 
 - **LLM（大脑）**：DeepSeek / 任意 OpenAI 兼容服务，带失败冷却与备用渠道自动切换；
-- **Planning（规划）**：复杂任务先由规划器（`planning.py`）拆成 2~6 步执行计划，模型边做边
+- **Planning（规划）**：复杂任务先由规划器（`core/planning.py`）拆成 2~6 步执行计划，模型边做边
   勾选进度（网页实时显示计划面板），终答前再自检一轮，没做完自动补做；
 - **Tool use（执行）**：27 个工具（业务库 SQL 直查 / 知识库检索 / **非结构化表格查询**（含本地问题分析）/ **Python 沙箱计算** / **统计分析与自动建模** /
   出图 / 机器学习预测 / 计划 / 记忆…）；
@@ -73,7 +76,7 @@ MODEL=gpt-3.5-turbo
 ```
 
 两组配置可以同时存在，切换只改 `LLM_PROVIDER` 一个值；
-命令行也可以临时指定：`python agent.py "问题" --provider openai`。
+命令行也可以临时指定：`python -m core.agent "问题" --provider openai`。
 
 其它可选变量：
 
@@ -106,20 +109,20 @@ MODEL=qwen-plus
 ## 3. 运行
 
 ```bash
-python agent.py                       # 跑多会话隔离 demo（两个会话互不知情）
-python agent.py "帮我算一下 123*456"   # 临时会话跑一个问题
-python agent.py "帮我算一下 123*456" --stream   # 流式输出（打字机效果）
+python -m core.agent                       # 跑多会话隔离 demo（两个会话互不知情）
+python -m core.agent "帮我算一下 123*456"   # 临时会话跑一个问题
+python -m core.agent "帮我算一下 123*456" --stream   # 流式输出（打字机效果）
 ```
 
 ### 多会话命令行用法
 
 ```bash
-python agent.py --new                 # 新建会话，打印 thread_id
-python agent.py --list                # 列出所有会话
-python agent.py "问题" --thread <id>   # 在指定会话里继续聊（带记忆）
-python agent.py --history <id>        # 查看某会话的完整历史
-python agent.py --rename <id> "标题"   # 重命名
-python agent.py --delete <id>         # 删除会话及其检查点
+python -m core.agent --new                 # 新建会话，打印 thread_id
+python -m core.agent --list                # 列出所有会话
+python -m core.agent "问题" --thread <id>   # 在指定会话里继续聊（带记忆）
+python -m core.agent --history <id>        # 查看某会话的完整历史
+python -m core.agent --rename <id> "标题"   # 重命名
+python -m core.agent --delete <id>         # 删除会话及其检查点
 ```
 
 ## 3.1 Web 界面（多会话）
@@ -161,7 +164,14 @@ AI 的回答采用 **流式输出（打字机效果）**：`/api/chat` 返回 ND
 | GET | `/api/memory` | 列出 Store 里的跨会话长期记忆；带 `?q=关键词` 时按相关度检索（如 `/api/memory?q=报销 标准`） |
 | DELETE | `/api/memory/<key>` | 删除某条长期记忆 |
 | GET | `/api/skills` | 列出可手动选择的数据查询技能卡（key / 中文名 / 就绪状态），供前端下拉填充 |
+| GET | `/api/uploads` | 列出上传文件、上传目录与自动记忆概况 |
+| POST | `/api/uploads` | 上传一个或多个文件；`multipart/form-data`，字段名为 `file` |
+| GET | `/api/uploads/<name>/preview` | 预览上传的表格、文档正文或图片 OCR 文本 |
+| GET | `/api/uploads/<name>/content` | 返回上传图片的原始内容，用于前端预览 |
+| DELETE | `/api/uploads/<name>` | 删除上传文件，并同步清理相关记忆和表格索引 |
+| GET / DELETE | `/api/uploads/memory` | 查看或清除上传表格的数据卡片与问答经验 |
 | POST | `/api/chat` | 流式问答，返回 NDJSON 事件流（见下） |
+| POST | `/api/deep` | 深度搜索：多轮知识库检索、查漏补缺并流式返回带引用的回答 |
 
 `/api/chat` 请求体：`{ "question": "...", "thread_id": "<可选>", "skill": "<可选>" }`，
 其中 `skill` 为页面手动指定的数据技能卡（库 key 或中文别名，如 `financial_asset_management` / `医疗`）：
@@ -296,8 +306,8 @@ DELETE /api/memory/<key>             删除某条长期记忆
 ## 3.5 Agent 架构：LLM + Planning + Tool use + Memory
 
 这个 Agent 不是「一问一答 + 顺手调个工具」，而是按 **LLM(大脑) + Planning(规划) +
-Tool use(执行) + Memory(记忆)** 四件套组成的闭环，代码分布在 `agent.py`（编排）与
-`planning.py`（规划引擎，纯逻辑、可离线单测）两个文件里。
+Tool use(执行) + Memory(记忆)** 四件套组成的闭环，代码分布在 `core/agent.py`（编排）与
+`core/planning.py`（规划引擎，纯逻辑、可离线单测）两个文件里。
 
 ### 一次提问的完整链路
 
@@ -328,7 +338,7 @@ Tool use(执行) + Memory(记忆)** 四件套组成的闭环，代码分布在 `
 | 能力 | 实现 | 说明 |
 | --- | --- | --- |
 | **LLM（大脑）** | `build_llm()` / `resolve_provider()` / `mark_provider_failed()` | DeepSeek 与任意 OpenAI 兼容服务；首选渠道失败自动进冷却并切备用渠道重试（流式与非流式两条路都有兜底） |
-| **Planning（规划）** | `planning.py` + `create_task_plan()` + `plan_task` / `update_plan` 工具 | 任务拆解、计划状态机、执行自检；深度搜索的「拆子问题 / 查漏补缺」也复用同一套提示词与解析 |
+| **Planning（规划）** | `core/planning.py` + `create_task_plan()` + `plan_task` / `update_plan` 工具 | 任务拆解、计划状态机、执行自检；深度搜索的「拆子问题 / 查漏补缺」也复用同一套提示词与解析 |
 | **Tool use（执行）** | `TOOLS`（26 个） + 手写 ReAct 循环 | 业务库 SQL 直查 / 表结构 / 技能卡 / 词表分析 / 非结构化表格（问题分析 + 召回 + 只读 SQL）/ **受限 Python 沙箱** / **统计分析 · 异常检测 · 聚类挖掘** / 画图 / 知识库检索 / sklearn 预测 / 计划 / 记忆；带死循环检测与最多 40 轮上限 |
 | **Memory（记忆）** | Checkpointer + Store + 滚动摘要 | 会话内 / 跨会话 / 长会话压缩三层，见 [3.4](#34-跨会话长期记忆langgraph-store) |
 
@@ -338,7 +348,7 @@ Tool use(执行) + Memory(记忆)** 四件套组成的闭环，代码分布在 `
   「先…然后…最后」「对比 / 汇总 / 预测 / 报告」「所有 / 每个 / 三个库」等特征累计 **≥3 分**才规划，
   「1+1 等于几」「上个月收入是多少」这类简单问题得 0 分，**不会多花一次模型调用**。
   也可以 `PLAN_MODE=always`（每题都规划）或 `PLAN_MODE=off`（关闭规划，回到老行为），
-  命令行临时切换：`python agent.py "问题" --plan always`。
+  命令行临时切换：`python -m core.agent "问题" --plan always`。
 - **计划长什么样**：`{"goal": "一句话目标", "steps": ["步骤一", "步骤二", …]}`，
   由规划器（LLM）产出，解析器**容错**（代码围栏、前后解释、对象/数组混写、一行一条都能认）。
 - **谁来推进**：计划注入 System Prompt 后，模型在正常 ReAct 循环里边做边调用
@@ -353,7 +363,7 @@ Tool use(执行) + Memory(记忆)** 四件套组成的闭环，代码分布在 `
 - **计划会落盘**：每次计划或进度变化都写进 `data/conversations.json` 的会话元数据里，
   刷新 / 重开页面后 `/api/conversations/<id>/messages` 会带回来，面板照常显示。
 - **失败安全**：规划失败、自检失败、摘要失败一律**安静降级**（继续按老流程执行），绝不打断对话。
-- **离线自测**：`python planning.py` 跑一遍启发式判定、容错解析、状态机与反思解析，不花 API 费用。
+- **离线自测**：`python -m core.planning` 跑一遍启发式判定、容错解析、状态机与反思解析，不花 API 费用。
 
 ### 参数与开关
 
@@ -373,7 +383,7 @@ Tool use(执行) + Memory(记忆)** 四件套组成的闭环，代码分布在 `
 ## 3.6 人性化细节（说话方式与交互）
 
 「九天梧桐」不是一台只会吐表格的报表机，也不该是话痨。这套「人性化」是**明确的规则**，
-不是靠模型自由发挥——都写在 System Prompt（`agent.py` 的回复风格 ①~⑧）与前端（`index.html`）里：
+不是靠模型自由发挥——都写在 System Prompt（`core/agent.py` 的回复风格 ①~⑧）与前端（`index.html`）里：
 
 | 维度 | 做法 |
 | --- | --- |
@@ -386,10 +396,10 @@ Tool use(执行) + Memory(记忆)** 四件套组成的闭环，代码分布在 `
 | 报错 | 不再甩 `请求失败：…`：中止 → “已经停下了，想继续或换个问法都行”；出错 → 一句人话 + **一句该怎么办**，技术细节以小字附在后面 |
 | 会话标题 | `make_title()` 自动剥掉“帮我 / 请 / 麻烦”这类客套开头与结尾标点，侧栏标题更像人写的 |
 
-> 想调整语气：改 `agent.py` 里 `_BASE_PROMPT` 结尾的「回复风格」段落即可（①~⑧ 条），
+> 想调整语气：改 `core/agent.py` 里 `_BASE_PROMPT` 结尾的「回复风格」段落即可（①~⑧ 条），
 > 无需碰任何业务逻辑；工具进度文案改 `TOOL_LABELS`。
 
-## 3.7 输出脱敏：个人信息不外泄（`sanitize.py`）
+## 3.7 输出脱敏：个人信息不外泄（`services/sanitize.py`）
 
 三个业务库（金融 / 医疗 / 通信）里存在姓名、手机号、证件号、住址、银行卡这类真实字段，
 非结构化表格和知识库文档里也可能夹带。光靠“提示词要求模型别泄露”是不可靠的（模型的回答是
@@ -427,8 +437,8 @@ Tool use(执行) + Memory(记忆)** 四件套组成的闭环，代码分布在 `
 **开关**（`.env`）：`SANITIZE=1`（默认开，设 `0` 关闭）/ `SANITIZE_STRICT=1`（严格模式：证件号、
 卡号、编号全遮，邮箱连带域名一起遮；标准模式则保留首尾若干位方便核对）。
 
-> 掩码串不会再被同一套规则命中 → **幂等**，重复调用安全。改规则只需动 `sanitize.py`；
-> 改完自检：`python sanitize.py`。
+> 掩码串不会再被同一套规则命中 → **幂等**，重复调用安全。改规则只需动 `services/sanitize.py`；
+> 改完自检：`python -m services.sanitize`。
 
 ## 3.8 提示词工程：把「听懂」这一步提前（`prompting.py`）
 
@@ -486,11 +496,11 @@ NL→SQL 的错误绝大多数不是 SQL 语法错，而是**没听懂**：
 `execute_sql` 的 docstring 里补了三组「反例 → 正例」，覆盖最高频的三类错误：
 计数忘去重、排序问题少了范围与方向、日期当字符串比较且没按自然月聚合。
 
-**开关**：`QUND=1` 默认开启，`QUND=0` 关闭回到原行为。自检：`python prompting.py`。
+**开关**：`QUND=1` 默认开启，`QUND=0` 关闭回到原行为。自检：`python -m core.prompting`。
 
 ## 3.15 统一上传目录 + Python 查表 + 自动记忆（`services/uploads.py`、`services/table_memory.py`）
 
-管理员上传的表格**统一放一个目录**，落盘即自动解析与学习，用户问数时由模型**写 Python** 来查。
+管理员上传的表格、文档和图片**统一放一个目录**。表格落盘后会自动解析与学习，用户问数时由模型可用**受限 Python** 查询；文档和图片中的文字会进入资料检索范围。
 
 ```text
 管理员上传 → data/uploads/（统一目录，落盘）
@@ -507,13 +517,14 @@ NL→SQL 的错误绝大多数不是 SQL 语法错，而是**没听懂**：
 
 | 项 | 说明 |
 | --- | --- |
-| 目录 | `app/data/uploads/`（`UPLOAD_DIR` 可改）；表格库会连同这个目录一起扫描 |
-| 接口 | `POST /api/uploads`（multipart，字段 file，可多文件）、`GET /api/uploads`、`DELETE /api/uploads/<name>`、`GET /api/uploads/memory` |
+| 目录 | `data/uploads/`（`UPLOAD_DIR` 可改）；表格库会连同这个目录一起扫描 |
+| 接口 | `POST /api/uploads`（multipart，字段 file，可多文件）、`GET /api/uploads`、`GET /api/uploads/<name>/preview`、`DELETE /api/uploads/<name>`、`GET /api/uploads/memory` |
 | 前端 | 聊天页右上角「**数据**」按钮 → 右侧面板：点击或拖拽上传、文件列表、删除、显示「已学几个文件 / 沉淀几次经验」 |
 | 管理员令牌 | 设了 `ADMIN_TOKEN` 后，写操作需 `?token=` 或 `X-Admin-Token`；不设则不校验（本地工作台默认） |
 | 文件安全 | 只取文件名（防目录穿越）、去非法字符但**保留中文**、同名自动改名不覆盖、`UPLOAD_MAX_MB` 限大小 |
+| 支持格式 | 表格：Excel / CSV / TSV / JSON / Parquet / SQLite / XML；资料：Markdown / TXT / PDF / Word / PowerPoint；图片：PNG / JPG / WebP / TIFF（OCR） |
 
-命令行也行：`python services/uploads.py`（列目录）、`python services/uploads.py 文件.xlsx`（看数据卡片）。
+命令行也行：`python -m services.uploads`（列目录）、`python -m services.uploads 文件.xlsx`（看数据卡片）。
 
 ### ② 用 Python 查表（不是写 SQL）
 
@@ -554,7 +565,7 @@ Web 接口（上传/列表/删除/令牌）。
 **核查结论**：改造前**不能**。`services/tables.py` 只解析「非结构化数据/」下三个硬编码 `.md`
 里的 Markdown / HTML 表格，把 `.xlsx` / `.csv` 丢进目录实测 `build()` 得到 **0 张表**。
 
-现在补上了：把 Excel / CSV / TSV 文件丢进 `app/非结构化数据/`，重建索引后即可用同一条链路查：
+现在补上了：把 Excel / CSV / TSV 文件放进 `非结构化数据/`，或从网页「数据」面板上传到 `data/uploads/`，重建索引后即可用同一条链路查：
 
 ```text
 文件 → spreadsheet.parse_file() → tables.build() → tables.sqlite3
@@ -569,13 +580,13 @@ Web 接口（上传/列表/删除/令牌）。
 | 表头 | 首行非纯数字即当表头；否则自动生成 `col1…colN` 并把首行当数据 |
 | 数值判定 | 复用 `tables` 的 `detect_numeric_columns / coerce_rows`，与 Markdown 表**同一套规则**（不会出现「Excel 算数值、CSV 算文本」的分裂） |
 | 日期 | 转成 ISO 字符串（SQLite 无日期类型，文本仍可比较与 LIKE） |
-| 规模保护 | `TABLE_FILE_MAX_ROWS=50000` / `TABLE_FILE_MAX_COLS=200` |
+| 规模保护 | `TABLE_FILE_MAX_ROWS=200000` / `TABLE_FILE_MAX_COLS=200` |
 | 坏文件 | 单个文件读不动（缺依赖 / 加密 / 损坏）只记一行警告，不拖垮整次构建 |
 
 ```bash
-python services/spreadsheet.py 销售明细.xlsx        # 只看解析结果，不写库
-python services/spreadsheet.py 非结构化数据/         # 整个目录
-python services/tables.py --rebuild                 # 解析进库（放新文件后执行）
+python -m services.spreadsheet 销售明细.xlsx        # 只看解析结果，不写库
+python -m services.spreadsheet 非结构化数据/         # 整个目录
+python -m services.tables --rebuild                 # 解析进库（放新文件后执行）
 ```
 
 旧版 `.xls` 需要 `xlrd`，未安装时**会明确提示「请另存为 .xlsx」**而不是静默跳过。
@@ -588,7 +599,7 @@ Excel / CSV 放进目录后要重建一次。**服务开着也能重建**：`os.
 ```bash
 python -c "import sys; sys.path.insert(0,'.'); from services import tables; \
            print(tables.build(force=True, quiet=True))"
-# 或（若停掉了服务）：python services/tables.py --rebuild
+# 或：python -m services.tables --rebuild
 ```
 
 ### 过程中修掉的三个真问题
@@ -602,7 +613,7 @@ python -c "import sys; sys.path.insert(0,'.'); from services import tables; \
    现在 `search_blob` 会把文件名、sheet 名、来源文件一起纳入。
 
 **测试**：`python eval/_test_spreadsheet.py` —— **31 项全部通过**（解析层 15 + 集成层 13
-+ 行为不变性 3，离线、不连库、不调模型）；`python services/spreadsheet.py` 自检 17 项。
++ 行为不变性 3，离线、不连库、不调模型）；`python -m services.spreadsheet` 自检 17 项。
 真实索引重建后仍是 **787 张表 / 120328 行**，既有表格问答不受影响。
 
 ## 3.11 向量数据库（Vector Database）· `services/vectordb.py`
@@ -638,15 +649,15 @@ smart 模式的 RRF 融合优先使用持久化向量库（不落盘的 `_Vector
 向量库不可用时只是**降级**为关键词 / Embedding 单路，不影响知识库可用性。
 
 ```bash
-python services/vectordb.py --stats                # 看条数、维度、是否启用 IVF、体积
-python services/vectordb.py --search "报销流程"     # 直接检索一次
-python services/vectordb.py --selftest             # 离线自检（20 项）
+python -m services.vectordb --stats                # 看条数、维度、是否启用 IVF、体积
+python -m services.vectordb --search "报销流程"     # 直接检索一次
+python -m services.vectordb --selftest             # 离线自检（20 项）
 python eval/_test_vectordb.py                      # 含 rag.py 集成的离线测试（41 项）
 ```
 
 > 说明：本地 `local` 后端是**词法层面**的语义（类似稠密版 TF-IDF，靠字 + bigram 的
 > 部分匹配获得鲁棒性），不是 Transformer 语义；想要真语义就配 `EMBEDDING_*` 切到 `api`
-> 后端（切后端后需要 `python services/rag.py --rebuild` 重建一次向量库）。
+> 后端（切后端后需要 `python -m services.rag --rebuild` 重建一次向量库）。
 
 ## 3.12 上下文工程（Context Engineering）· `core/context.py`
 
@@ -773,7 +784,7 @@ python eval/eval_accuracy.py --json eval/_r.json   # 出报告 + JSON（含每�
 
 **开关**（`.env`）：`REASON_MODE=auto|react|cot|tot|mcts`（auto：复杂任务才上树搜索）、
 `REASON_COT=1`（CoT 节拍）、`TOT_BREADTH` / `TOT_DEPTH`、`MCTS_ITERS` / `MCTS_MAX_STEPS`。
-**任何环节失败都静默降级**为单条计划或不规划——绝不打断对话。自检：`python core/reasoning.py`。
+**任何环节失败都静默降级**为单条计划或不规划——绝不打断对话。自检：`python -m core.reasoning`。
 
 ## 3.10 三级数据能力（基础查询 / 统计分析 / 自动建模）
 
@@ -801,7 +812,7 @@ run_python("result = [round((r['amount']-prev)/prev, 3) for prev, r in zip(vals,
 - 🔒 **脱敏内置**：数据进沙箱**之前**先按列名脱一遍（`mask_rows`），模型怎么写代码都吐不出个人信息
 
 > 定位：这是给自家 Agent 用的**护栏**，不是多租户安全边界，真正隔离要靠容器。
-> 自检：`python services/pysandbox.py`
+> 自检：`python -m services.pysandbox`
 
 ### 统计列的自动甄别
 
@@ -829,7 +840,7 @@ def my_tool(arg: str) -> str:
     """工具描述（Agent 用来判断何时调用）。"""
     return f"你输入的是 {arg}"
 
-# 在 agent.py 里把它加入 _BASE_TOOLS 列表
+# 在 core/agent.py 里把它加入 _BASE_TOOLS 列表
 _BASE_TOOLS = [calculator, get_current_time, word_count, my_tool]
 ```
 
@@ -841,10 +852,10 @@ _BASE_TOOLS = [calculator, get_current_time, word_count, my_tool]
 PDF 片段还会标注页码）：
 
 ```bash
-python agent.py "X1 咖啡机提示 E03 怎么办？"      # Agent 先检索知识库再作答
-python agent.py "出差报销的餐饮补贴是多少？"
-python rag.py "咖啡机怎么除垢"                     # 只测知识库检索，不调用 LLM、不花钱
-python rag.py --list                               # 查看知识库文档 / 检索后端
+python -m core.agent "X1 咖啡机提示 E03 怎么办？"      # Agent 先检索知识库再作答
+python -m core.agent "出差报销的餐饮补贴是多少？"
+python -m services.rag "咖啡机怎么除垢"                     # 只测知识库检索，不调用 LLM、不花钱
+python -m services.rag --list                               # 查看知识库文档 / 检索后端
 ```
 
 - **Markdown 与 PDF 都能喂**：文本类整篇分块；PDF 用 `pypdf` 逐页抽取文字再分块，
@@ -858,16 +869,16 @@ python rag.py --list                               # 查看知识库文档 / 检
   向量引擎自动加入、升级为真语义混合；没配 / 服务不可用则自动保持关键词单路并写明原因。
   配置方法见 `.env.example` 的 `3.1` 小节（保持注释状态 = 纯本地离线）。
 - **深度搜索（Deep Research 式）**：网页勾选“深度搜索”，或命令行
-  `python agent.py --deep "问题"`：自动拆子问题 → 逐个子查询智能检索 → 查漏补缺（第二轮）
+  `python -m core.agent --deep "问题"`：自动拆子问题 → 逐个子查询智能检索 → 查漏补缺（第二轮）
   → LLM 重排收敛 → 带 `[1][2]…` 引用的综合回答，过程与来源实时可见。
 - 进程内新增 / 修改文档后调用 `rag_service.rebuild()` 即可重建索引（重启进程也会自动重建）。
 - `/api/health` 会附带 `rag` 字段，显示知识库文档数、分块数、当前引擎（keyword / vector /
   双路混合）与告警。
 
 > 提示：知识库文档属于业务数据，默认放在 `knowledge/`（受版本管理、可随项目分发）；
-> 若要改成其它目录，把 `rag.py` 里的 `KNOWLEDGE_DIR` 指向你的路径即可。
+> 若要改成其它目录，请在 `services/rag.py` 中调整 `KNOWLEDGE_DIR`。
 
-### RAG 管线与方法（`rag.py` 实现细节）
+### RAG 管线与方法（`services/rag.py` 实现细节）
 
 本项目的 RAG 是「**索引离线构建 + 查询在线检索 + LLM 有据作答**」的标准管线，五步：
 
@@ -901,7 +912,7 @@ python rag.py --list                               # 查看知识库文档 / 检
    System Prompt 约定：问题涉及知识库内容时必须先检索、基于原文作答并注明引用了哪个文件，
    **检索不到就如实说明、严禁编造**——即标准的「检索增强 + 引用溯源」，而不是把全文塞给模型。
 
-分块 / 检索参数均可用环境变量覆盖（默认值见 `rag.py` 顶部）：
+分块 / 检索参数均可用环境变量覆盖（默认值见 `services/rag.py` 顶部）：
 `RAG_CHUNK_SIZE=500`（分块目标长度）、`RAG_CHUNK_OVERLAP=60`（相邻块重叠）、
 `RAG_TOP_K=3`（最终返回片段数）、`RAG_PER_LIST=8`（每路引擎的召回池大小）、
 `RAG_RRF_K=60`（RRF 融合常数，越大越看重前排名次）、`RAG_RERANK=0`（是否再加 LLM 重排）；
@@ -939,9 +950,9 @@ Agent 内置四个工具，用于“问数 → 查库 → 回复”：
 - `/api/health` 会返回 `database` 字段（`{ok, databases:[库名（N 张表）…]}`），显示三个业务库连通情况。
 
 ```bash
-python agent.py "姓张的患者有多少人？再给 3 条姓名和手机号"
-python agent.py "按客户类型统计金融库客户数量，从多到少"
-python agent.py "上个月医疗总收入是多少？"
+python -m core.agent "姓张的患者有多少人？再给 3 条姓名和手机号"
+python -m core.agent "按客户类型统计金融库客户数量，从多到少"
+python -m core.agent "上个月医疗总收入是多少？"
 ```
 
 ## 4.3 Sklearn 机器学习预测
@@ -949,7 +960,7 @@ python agent.py "上个月医疗总收入是多少？"
 对三个业务库的历史数据按**自然月**聚合，用 sklearn 训练预测未来月份并生成 **Markdown 预测报告**。
 实现分两个文件：
 
-- `ml_forecast.py` —— 核心模块：取数（按月聚合）→ 特征工程（时间趋势 + 月度季节性 + 滞后值）→
+- `services/ml_forecast.py` —— 核心模块：取数（按月聚合）→ 特征工程（时间趋势 + 月度季节性 + 滞后值）→
   在 `LinearRegression / Ridge / RandomForest / GradientBoosting / SVR` 中做**前向验证**
   （用最近一段月份做验证集），按验证期 RMSE 自动挑最优模型 → 全量重训并**递归滚动预测**未来 N 个月 →
   输出各月预测值 + 趋势结论，并把完整报告写入 `reports/*.md`。
@@ -964,7 +975,7 @@ python predict.py                                          # 三库各跑其默�
 python predict.py --db healthcare                          # 只跑医疗库默认指标（月度医疗净收入）
 python predict.py --metric telecom_bill_amount --horizon 12 # 指定指标预测 12 个月
 python predict.py --list                                   # 查看全部可预测指标 key
-python ml_forecast.py --metric healthcare_revenue          # 直接跑模块（同 predict.py）
+python -m services.ml_forecast --metric healthcare_revenue # 直接跑模块（同 predict.py）
 ```
 
 指标 key 一览：
@@ -984,13 +995,13 @@ python ml_forecast.py --metric healthcare_revenue          # 直接跑模块（�
 ## 4.4 非结构化表格库（解析 + AI 查询）
 
 前两节管的是文档（RAG）和三个业务库（MySQL）；这一节管第三种数据：`非结构化数据/` 目录里那批
-**写在 markdown / HTML 里的表格**。`tables.py` 把它们解析成结构化数据，Agent 就能像查数据库一样用 SQL 查。
+**写在 markdown / HTML 里的表格**。`services/tables.py` 把它们解析成结构化数据，Agent 就能像查数据库一样用 SQL 查。
 
 ### 一句话链路
 
 ```text
 非结构化数据/*-数据.md      （=== 表id === 分块 + markdown 管道表 / HTML 表格）
-       │  tables.py 解析：切块 → 解析表格 → 数值清洗 → 列名归一
+       │  services/tables.py 解析：切块 → 解析表格 → 数值清洗 → 列名归一
        ▼
 data/tables.sqlite3         （每张源表一个物理表 t_<表id>，另有元数据表 _tables）
        │  Agent 工具链：find_table → describe_table → query_tables（只读 SQL）
@@ -1031,7 +1042,7 @@ data/tables.sqlite3         （每张源表一个物理表 t_<表id>，另有元
 
 | 手段 | 做法 | 效果 |
 | --- | --- | --- |
-| 术语对照 | `tables.py` 里的 `_CN_EN_TERMS`（人工整理，覆盖咖啡 / 气象 / 新能源 / 财报 / 保险 / 地区经济 / 体育等主题）：把「现金支付」「信用利差」「续航」翻成表里真实出现的英文词 | 中文提问对英文表格的召回显著变好 |
+| 术语对照 | `services/tables.py` 里的 `_CN_EN_TERMS`（人工整理，覆盖咖啡 / 气象 / 新能源 / 财报 / 保险 / 地区经济 / 体育等主题）：把「现金支付」「信用利差」「续航」翻成表里真实出现的英文词 | 中文提问对英文表格的召回显著变好 |
 | 元语言过滤 | 题目里大量「单元格 / 列名 / 第几列」这类描述表格本身的词（实测占题目词一半以上）全部进停用词 | 噪声不再压过业务词 |
 | 题型 → 写法 | `analyze_table_query` 把问题判成 10 类（占比 / 同比环比 / Top-N / 分组 / 计数 / 求和 / 平均 / 按月趋势 / 反事实 / 取值），每类直接给出 SQL 写法与坑 | 少走弯路，尤其是 `*100.0` 这类整除陷阱 |
 | 写前核对 | 强制先 `describe_table` 抄列名，再写 SQL；System Prompt 写明失败自纠（列名/引号/表名/单条语句） | 杜绝「凭印象编列名」 |
@@ -1066,12 +1077,12 @@ data/tables.sqlite3         （每张源表一个物理表 t_<表id>，另有元
 ### 命令行（不调用模型也能用）
 
 ```bash
-python tables.py --build                  # 解析并重建索引（787 张表，约 5 秒）
-python tables.py --sets                   # 三个数据集的规模
-python tables.py --find "Latte 咖啡品类"    # 关键词召回候选表
-python tables.py --info t_05ab28a47b924ae # 看某张表的列与预览
-python tables.py --sql "SELECT ..."       # 直接跑只读 SQL
-python tables.py --questions multi_step --limit 5   # 看评测题样例
+python -m services.tables --build                  # 解析并重建索引（787 张表，约 5 秒）
+python -m services.tables --sets                   # 三个数据集的规模
+python -m services.tables --find "Latte 咖啡品类"    # 关键词召回候选表
+python -m services.tables --info t_05ab28a47b924ae # 看某张表的列与预览
+python -m services.tables --sql "SELECT ..."       # 直接跑只读 SQL
+python -m services.tables --questions multi_step --limit 5   # 看评测题样例
 ```
 
 > 提示：Windows PowerShell 传中文参数可能乱码，用 `--find` 时建议用脚本或英文关键词。
@@ -1144,16 +1155,27 @@ python eval_jiso.py --resume --out reports/jiso_eval_xxx   # 断点续跑（跳�
 
 ```
 .
-├── agent.py          # Agent 主程序（LLM + 规划 + 工具 + 三层记忆的编排）
-├── planning.py       # 规划引擎：任务拆解 / 计划状态机 / 执行自检（纯逻辑，可 python planning.py 离线自测）
-├── rag.py            # RAG 知识库模块（Markdown/PDF 加载、分块、双后端检索）
-├── ml_forecast.py    # sklearn 月度预测核心模块（三库取数/建模/报告）
+├── core/
+│   ├── agent.py      # Agent 编排：LLM、工具、规划与三层记忆
+│   ├── context.py    # 上下文组装、预算与工具动态选择
+│   ├── planning.py   # 规划引擎：任务拆解 / 计划状态机 / 执行自检
+│   ├── prompting.py  # 查询意图理解与提示词约束
+│   └── reasoning.py  # CoT / ToT / MCTS / Reflexion 推理策略
+├── services/
+│   ├── rag.py        # RAG 知识库检索
+│   ├── tables.py     # Markdown/HTML 表格解析与只读查询
+│   ├── spreadsheet.py # Excel / CSV 等结构化文件解析
+│   ├── uploads.py    # 上传文件管理、数据卡片与自动索引
+│   ├── document_ingest.py # PDF / Word / PPT / 图片 OCR 文本提取
+│   ├── vectordb.py   # SQLite 持久化向量库
+│   ├── ml_forecast.py # sklearn 月度预测核心
+│   ├── pysandbox.py  # 受限 Python 执行环境
+│   ├── sanitize.py   # 输出脱敏
+│   └── viz.py        # Matplotlib 图表
+├── eval/             # 离线评测与回归测试
 ├── predict.py        # 独立运行的预测脚本（生成 reports/*.md）
-├── viz.py            # Matplotlib 出图（预测趋势图 / 查询结果图 PNG，懒加载）
 ├── web.py            # Flask 服务与 REST 接口
 ├── index.html        # 多会话聊天界面
-├── tables.py         # 非结构化表格：解析 markdown/HTML 表格 → SQLite，并提供召回/只读查询
-├── eval_jiso.py      # jiso 题集 NL→SQL 评测（快速模式 + 执行结果比对判分，见 §4.5）
 ├── jiso/             # 680 道标准评测题（id/problem/sql，金融 279 / 医疗 210 / 通信 191）
 ├── reports/          # 预测报告 / 评测报告输出目录（*.md + *.jsonl + 趋势图 *.png，运行时生成）
 ├── knowledge/        # RAG 知识库：放入 .md/.txt/.pdf 自动可检索（含三库 NL→SQL 问答样例）
@@ -1169,7 +1191,10 @@ python eval_jiso.py --resume --out reports/jiso_eval_xxx   # 断点续跑（跳�
 │   ├── conversations.json     # 会话元数据（含执行计划与进度，刷新页面可恢复）
 │   ├── checkpoints.sqlite3    # Checkpointer 落盘（会话内完整消息历史）
 │   ├── memory.sqlite3         # 跨会话长期记忆 Store + 长会话滚动摘要
-│   └── tables.sqlite3         # 非结构化表格索引（787 张表，python tables.py --build 重建）
+│   ├── tables.sqlite3         # 非结构化表格索引（787 张表，python -m services.tables --build 重建）
+│   ├── uploads/               # 网页上传的文件（可由 UPLOAD_DIR 覆盖）
+│   ├── table_memory.json      # 上传表的数据卡片与问答经验
+│   └── vector.sqlite3         # 持久化向量索引
 ├── requirements.txt  # Python 依赖
 ├── .env.example      # 环境变量模板（不含真实密钥）
 ├── .env              # 真实密钥（已 gitignore）
@@ -1184,15 +1209,17 @@ python eval_jiso.py --resume --out reports/jiso_eval_xxx   # 断点续跑（跳�
 | --- | --- |
 | langchain | 1.4.0（1.x 已迁移到 `langchain.agents.create_agent`） |
 | langchain-openai | ≥ 0.2 |
-| pypdf | ≥ 4.0（PDF 文本抽取；`rag.py` 在用到 PDF 时懒加载） |
+| pypdf | ≥ 4.0（PDF 文本抽取；`services/rag.py` 在用到 PDF 时懒加载） |
 | langgraph | ≥ 1.0（`langgraph.checkpoint.*` 提供 Checkpointer） |
 | langgraph-checkpoint-sqlite | ≥ 2.0（持久化用，缺失时自动退回内存版） |
 | python-dotenv | ≥ 1.0 |
 | flask | ≥ 3.0 |
 | scikit-learn | ≥ 1.3（sklearn 月度预测用，含 numpy 依赖） |
-| matplotlib | ≥ 3.8（`viz.py` 可视化用，懒加载；缺库不影响其它功能） |
+| matplotlib | ≥ 3.8（`services/viz.py` 可视化用，懒加载；缺库不影响其它功能） |
+| pandas / openpyxl / xlrd | 表格文件解析与 Excel 读写 |
+| python-docx / python-pptx / rapidocr-onnxruntime | 上传 Word、PowerPoint 与图片资料的文本提取 |
 
-> `planning.py`（规划引擎）与 `tables.py`（非结构化表格解析 / 查询）**只用 Python 标准库**
+> `core/planning.py`（规划引擎）与 `services/tables.py`（非结构化表格解析 / 查询）**只用 Python 标准库**
 > （后者用 sqlite3，**不需要 pandas**），没有引入任何新依赖；表格数据只落在本地
 > `data/tables.sqlite3`，**不写入 MySQL**。
 
@@ -1207,18 +1234,25 @@ python eval_jiso.py --resume --out reports/jiso_eval_xxx   # 断点续跑（跳�
   若用 `deepseek-reasoner` 或其它推理模型本身就会慢。
   `REQUEST_TIMEOUT` 控制超时上限，超时会直接报错而不是无限等待。
 - **报“未找到 XXX_API_KEY”**：检查 `LLM_PROVIDER` 指的是哪一组变量，把对应那组填全。
-- **非结构化表格的数据放在哪？** 只在本地：`非结构化数据/` 里的 markdown / HTML 表格由 `tables.py` 解析成
+- **非结构化表格的数据放在哪？** 只在本地：`非结构化数据/` 里的 markdown / HTML 表格由 `services/tables.py` 解析成
   `data/tables.sqlite3`（787 张表 / 120,328 行），**不会写进 MySQL**。重建索引：
-  `python tables.py --build`（约 5 秒），看一眼规模：`python tables.py --stats`。
+  `python -m services.tables --build`（约 5 秒），看一眼规模：`python -m services.tables --stats`。
 - **为什么 `execute_sql` 查不到 `t_xxxx` 这些表？** 因为它们不在 MySQL 里（MySQL 只有三个业务库）。
   问业务库用 `get_table_schema` + `execute_sql`，问这批表格用 `find_table` + `describe_table` + `query_tables`。
-- **表格问题答不上来 / 召回不准？** 先把表 id（15 位十六进制）直接告诉它，或先 `python tables.py --find "关键词"`
+- **表格问题答不上来 / 召回不准？** 先把表 id（15 位十六进制）直接告诉它，或先 `python -m services.tables --find "关键词"`
   看能不能召回到目标表；中文问题对英文表格召回偏弱时，换成表里的英文取值（如 `Latte`、`jpmorgan`）效果更好。
 
 ## 8. 更新记录
 
 > 约定：每次对代码 / 配置 / 文档做出修改后，都在本节**顶部**追加一条“日期 + 改了什么”，
 > 只记功能与口径变化，保持简洁、如实。
+
+### 2026-09-28（README 当前用法同步）
+
+- 文档名称更新为「九天梧桐 AI 工作台」，简介改为当前的本地多会话数据工作台定位。
+- 所有当前运行命令与代码入口统一为重构后的 `core/` 和 `services/` 目录，例如 `python -m core.agent`、`python -m services.tables`。
+- HTTP 接口表补齐上传、预览、自动记忆和深度搜索接口；项目结构图补齐核心模块、服务模块与运行时数据。
+- 上传说明补充文档与图片 OCR 支持，以及实际可接受的文件类型和关联依赖。
 
 ### 2026-09-28（`core/agent.py` 可读性重构，行为不变）
 

@@ -169,6 +169,8 @@ def save(upload_name: str, data: bytes) -> dict:
                 else:
                     from services import table_memory
                     table_memory.remember_table(target.name, cards)
+                    from services import knowledge_learning
+                    knowledge_learning.remember_table_upload(target.name, cards)
             except Exception as exc:
                 entry["status"] = "解析失败"
                 entry["message"] = f"{type(exc).__name__}: {exc}"
@@ -293,6 +295,11 @@ def delete(name: str) -> bool:
         try:
             from services import table_memory
             table_memory.forget_table(target.name)
+        except Exception:
+            pass
+        try:
+            from services import knowledge_learning
+            knowledge_learning.forget_table_upload(target.name)
         except Exception:
             pass
         try:
